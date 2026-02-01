@@ -98,7 +98,6 @@ const ItemManagement = React.memo(({
     category: '',
     image: null,
     imagePreview: null,
-    is_qty_managed: true,
   });
   const [formFieldTouched, setFormFieldTouched] = useState({
     name: false,
@@ -113,7 +112,6 @@ const ItemManagement = React.memo(({
       category: categories.length > 0 ? categories[0].name : '',
       image: null,
       imagePreview: null,
-      is_qty_managed: true,
     });
     setFormFieldTouched({ name: false, category: false });
     setShowForm(true);
@@ -126,7 +124,6 @@ const ItemManagement = React.memo(({
       category: item.category_name || item.category || '',
       image: null,
       imagePreview: item.image || null,
-      is_qty_managed: item.is_qty_managed !== undefined ? Boolean(item.is_qty_managed) : true,
     });
     setFormFieldTouched({ name: false, category: false });
     setShowForm(true);
@@ -140,7 +137,6 @@ const ItemManagement = React.memo(({
       category: '',
       image: null,
       imagePreview: null,
-      is_qty_managed: true,
     });
     setFormFieldTouched({ name: false, category: false });
   };
@@ -203,7 +199,6 @@ const ItemManagement = React.memo(({
         name: itemFormData.name,
         category_id: categoryObj.id,
         image: itemFormData.imagePreview,
-        is_qty_managed: itemFormData.is_qty_managed
       };
 
       if (editingItem) {
@@ -427,19 +422,6 @@ const ItemManagement = React.memo(({
                 </Grid>
 
                 <Grid item xs={12}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={itemFormData.is_qty_managed}
-                        onChange={(e) => setItemFormData({ ...itemFormData, is_qty_managed: e.target.checked })}
-                        color="primary"
-                      />
-                    }
-                    label="Manage Quantity"
-                  />
-                </Grid>
-
-                <Grid item xs={12}>
                   <Box display="flex" gap={2} justifyContent="flex-end">
                     <Button onClick={handleCancelForm}>
                       Cancel
@@ -493,18 +475,10 @@ const ItemManagement = React.memo(({
                         </Typography>
                       }
                       secondary={
-                        <Box>
-                          <Chip
-                            label={item.category_name || item.category}
-                            size="small"
-                            sx={{ mr: 1 }}
-                          />
-                          {item.is_qty_managed === 0 ? (
-                            <Chip label="Qty Not Managed" size="small" variant="outlined" />
-                          ) : (
-                            <Chip label="Qty Managed" size="small" color="primary" variant="outlined" />
-                          )}
-                        </Box>
+                        <Chip
+                          label={item.category_name || item.category}
+                          size="small"
+                        />
                       }
                     />
                   </Box>
@@ -544,7 +518,6 @@ const Inventory = () => {
     variant: '',
     image: null,
     imagePreview: null,
-    is_qty_managed: true,
   });
 
   // Image and barcode handling
@@ -1085,7 +1058,6 @@ const Inventory = () => {
       buyingPrice: (item.buying_price || item.buyingPrice || '').toString(),
       initialQuantity: (item.total_stock || item.stock || '').toString(),
       description: item.description || '',
-      is_qty_managed: item.is_qty_managed !== undefined ? Boolean(item.is_qty_managed) : true,
     });
     setBarcodeInput(item.barcode || '');
     setEditItemDialog(true);
@@ -1122,7 +1094,6 @@ const Inventory = () => {
       formData.append('buyingPrice', newItem.buyingPrice);
       formData.append('initialQuantity', newItem.initialQuantity);
       formData.append('description', newItem.description);
-      formData.append('is_qty_managed', newItem.is_qty_managed);
 
       if (newItem.image) {
         formData.append('image', newItem.image);
@@ -1145,7 +1116,6 @@ const Inventory = () => {
         variant: '',
         image: null,
         imagePreview: null,
-        is_qty_managed: true,
         barcode: '',
         sellingPrice: '',
         buyingPrice: '',
@@ -1206,11 +1176,6 @@ const Inventory = () => {
   });
 
   const getStockStatus = (item) => {
-    // Check if quantity is managed
-    if (item.is_qty_managed === 0 || item.is_qty_managed === false) {
-      return { label: 'Available', color: 'info' };
-    }
-
     const stock = item.total_stock || item.stock || 0;
     if (stock === 0) return { label: 'Out of Stock', color: 'error' };
     if (stock <= (item.minStock || 5)) return { label: 'Low Stock', color: 'warning' };
@@ -1377,11 +1342,7 @@ const Inventory = () => {
                     </TableCell>
                     <TableCell>Rs. {(item.selling_price || item.price || 0).toFixed(2)}</TableCell>
                     <TableCell>
-                      {item.is_qty_managed === 0 ? (
-                        <Chip label="N/A" size="small" variant="outlined" />
-                      ) : (
-                        item.total_stock || item.stock || 0
-                      )}
+                      {item.total_stock || item.stock || 0}
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -1852,20 +1813,6 @@ const Inventory = () => {
                 }}
               />
             </Grid>
-
-            {/* Manage Quantity Checkbox */}
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={newItem.is_qty_managed}
-                    onChange={(e) => setNewItem({ ...newItem, is_qty_managed: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label="Manage Quantity"
-              />
-            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -1879,7 +1826,6 @@ const Inventory = () => {
                 variant: '',
                 image: null,
                 imagePreview: null,
-                is_qty_managed: true,
               });
               setFieldTouched({
                 name: false,

@@ -86,8 +86,8 @@ router.post('/', (req, res) => {
     }
 
     db.run(
-      'INSERT INTO item (category_id, name, image, is_qty_managed, created_at) VALUES (?, ?, ?, ?, ?)',
-      [category_id, name, image, req.body.is_qty_managed !== undefined ? (req.body.is_qty_managed ? 1 : 0) : 1, getCurrentUTCTimestamp()],
+      'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)',
+      [category_id, name, image, getCurrentUTCTimestamp()],
       function (err) {
         if (err) {
           return res.status(500).json({ error: err.message });
@@ -124,10 +124,6 @@ router.put('/:id', (req, res) => {
   if (image !== undefined) {
     updateFields.push('image = ?');
     values.push(image);
-  }
-  if (req.body.is_qty_managed !== undefined) {
-    updateFields.push('is_qty_managed = ?');
-    values.push(req.body.is_qty_managed ? 1 : 0);
   }
 
   if (updateFields.length === 0) {

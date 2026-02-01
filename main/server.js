@@ -366,7 +366,7 @@ server.post('/api/stock-batch/add', async (req, res) => {
 server.put('/api/item-variants/:id/update-full', upload.single('image'), async (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description, is_qty_managed } = req.body;
+  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description } = req.body;
   const imagePath = req.file ? req.file.path : null;
 
   if (!name || !category || !variant || !sellingPrice) {
@@ -414,11 +414,6 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), async (
       if (imagePath) {
         updateFields.push('image = ?');
         updateValues.push(imagePath);
-      }
-
-      if (is_qty_managed !== undefined) {
-        updateFields.push('is_qty_managed = ?');
-        updateValues.push(is_qty_managed ? 1 : 0);
       }
 
       updateValues.push(currentData.item_id);

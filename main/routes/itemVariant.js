@@ -10,8 +10,7 @@ router.get('/', (req, res) => {
             COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
             sph.selling_price,
             sph.selling_price,
-            i.id as item_id_ref,
-            i.is_qty_managed
+            i.id as item_id_ref
      FROM item i
      LEFT JOIN item_variant iv ON i.id = iv.item_id
      LEFT JOIN variant v ON iv.variant_id = v.id
@@ -39,7 +38,7 @@ router.get('/:id', (req, res) => {
   const { id } = req.params;
 
   db.get(
-    `SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name, i.is_qty_managed,
+    `SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name,
             COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
             sph.selling_price
      FROM item_variant iv
@@ -238,7 +237,7 @@ router.get('/barcode/:barcode', (req, res) => {
   const { barcode } = req.params;
 
   db.get(
-    `SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name, i.is_qty_managed
+    `SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name
      FROM item_variant iv
      JOIN item i ON iv.item_id = i.id
      JOIN variant v ON iv.variant_id = v.id

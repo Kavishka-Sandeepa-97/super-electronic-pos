@@ -168,8 +168,7 @@ UPDATE item_variant SET barcode = '123456789' WHERE id = 1;
   "category_name": "Electronics",
   "selling_price": 150.00,
   "total_stock": 25,
-  "image": "path/to/image.jpg",
-  "is_qty_managed": 1
+  "image": "path/to/image.jpg"
 }
 ```
 

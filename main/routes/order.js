@@ -190,22 +190,8 @@ router.post('/', (req, res) => {
                 return res.status(500).json({ error: err.message });
               }
               
-              // Check if item is quantity managed
-              db.get(
-                'SELECT i.is_qty_managed FROM item i JOIN item_variant iv ON i.id = iv.item_id WHERE iv.id = ?',
-                [item.item_variant_id],
-                (err, row) => {
-                  if (err && !hasError) {
-                    hasError = true;
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: err.message });
-                  }
-                  
-                  const isQtyManaged = row ? row.is_qty_managed : 1; // Default to managed if not found
-                  
-                  if (isQtyManaged) {
-                    // Update stock using FIFO (First In, First Out)
-                    const deductStockFIFO = (itemVariantId, quantity, callback) => {
+              // Update stock using FIFO (First In, First Out)
+              const deductStockFIFO = (itemVariantId, quantity, callback) => {
                       // Get batches ordered by creation date (oldest first)
                       db.all(
                         'SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC',
@@ -287,41 +273,6 @@ router.post('/', (req, res) => {
                         });
                       }
                     });
-                  } else {
-                    // No stock management, just proceed
-                    itemsProcessed++;
-                    if (itemsProcessed === items.length && !hasError) {
-                      // Update cashier shift cash amount for completed orders
-                      if (status === 'completed') {
-                        db.run(
-                          `UPDATE cashier_shift 
-                           SET current_cash_onhand = current_cash_onhand + ? 
-                           WHERE user_id = ? AND status = 'open'`,
-                          [total_amount, admin_id],
-                          (err) => {
-                            if (err) {
-                              console.error('Error updating cashier cash:', err);
-                              // Don't fail the order for cash update error
-                            }
-                          }
-                        );
-                      }
-
-                      db.run('COMMIT', (err) => {
-                        if (err) {
-                          return res.status(500).json({ error: err.message });
-                        }
-                        res.status(201).json({
-                          id: orderId,
-                          total_amount,
-                          status,
-                          message: 'Order created successfully'
-                        });
-                      });
-                    }
-                  }
-                }
-              );
             }
           );
         });
@@ -377,96 +328,61 @@ router.put('/:id/status', (req, res) => {
           let hasError = false;
           
           items.forEach(item => {
-            // Check if item is quantity managed
-            db.get(
-              'SELECT i.is_qty_managed FROM item i JOIN item_variant iv ON i.id = iv.item_id WHERE iv.id = ?',
+            // Get batches ordered by creation date (newest first for restoration)
+            db.all(
+              'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC',
               [item.item_variant_id],
-              (err, row) => {
+              (err, batches) => {
                 if (err && !hasError) {
                   hasError = true;
                   db.run('ROLLBACK');
                   return res.status(500).json({ error: err.message });
                 }
                 
-                const isQtyManaged = row ? row.is_qty_managed : 1; // Default to managed if not found
+                let remainingQty = item.qty;
+                let batchIndex = 0;
                 
-                if (isQtyManaged) {
-                  // Get batches ordered by creation date (newest first for restoration)
-                  db.all(
-                    'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC',
-                    [item.item_variant_id],
-                    (err, batches) => {
+                const restoreBatch = () => {
+                  if (remainingQty <= 0 || batchIndex >= batches.length) {
+                    itemsProcessed++;
+                    if (itemsProcessed === items.length && !hasError) {
+                      // Update order status
+                      db.run(
+                        'UPDATE orders SET status = ? WHERE id = ?',
+                        [status, id],
+                        function(err) {
+                          if (err) {
+                            db.run('ROLLBACK');
+                            return res.status(500).json({ error: err.message });
+                          }
+                          db.run('COMMIT');
+                          res.json({ message: 'Order cancelled and stock restored successfully' });
+                        }
+                      );
+                    }
+                    return;
+                  }
+                  
+                  const batch = batches[batchIndex];
+                  
+                  db.run(
+                    'UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?',
+                    [remainingQty, batch.id],
+                    (err) => {
                       if (err && !hasError) {
                         hasError = true;
                         db.run('ROLLBACK');
                         return res.status(500).json({ error: err.message });
                       }
                       
-                      let remainingQty = item.qty;
-                      let batchIndex = 0;
-                      
-                      const restoreBatch = () => {
-                        if (remainingQty <= 0 || batchIndex >= batches.length) {
-                          itemsProcessed++;
-                          if (itemsProcessed === items.length && !hasError) {
-                            // Update order status
-                            db.run(
-                              'UPDATE orders SET status = ? WHERE id = ?',
-                              [status, id],
-                              function(err) {
-                                if (err) {
-                                  db.run('ROLLBACK');
-                                  return res.status(500).json({ error: err.message });
-                                }
-                                db.run('COMMIT');
-                                res.json({ message: 'Order cancelled and stock restored successfully' });
-                              }
-                            );
-                          }
-                          return;
-                        }
-                        
-                        const batch = batches[batchIndex];
-                        
-                        db.run(
-                          'UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?',
-                          [remainingQty, batch.id],
-                          (err) => {
-                            if (err && !hasError) {
-                              hasError = true;
-                              db.run('ROLLBACK');
-                              return res.status(500).json({ error: err.message });
-                            }
-                            
-                            remainingQty = 0; // All restored to this batch
-                            batchIndex++;
-                            restoreBatch();
-                          }
-                        );
-                      };
-                      
+                      remainingQty = 0; // All restored to this batch
+                      batchIndex++;
                       restoreBatch();
                     }
                   );
-                } else {
-                  // No stock management, just proceed
-                  itemsProcessed++;
-                  if (itemsProcessed === items.length && !hasError) {
-                    // Update order status
-                    db.run(
-                      'UPDATE orders SET status = ? WHERE id = ?',
-                      [status, id],
-                      function(err) {
-                        if (err) {
-                          db.run('ROLLBACK');
-                          return res.status(500).json({ error: err.message });
-                        }
-                        db.run('COMMIT');
-                        res.json({ message: 'Order cancelled successfully' });
-                      }
-                    );
-                  }
-                }
+                };
+                
+                restoreBatch();
               }
             );
           });
@@ -627,72 +543,49 @@ router.put('/:id', (req, res) => {
               proceedWithDelete();
             } else {
               oldItems.forEach(oldItem => {
-                // Check if old item is quantity managed
-                db.get(
-                  'SELECT i.is_qty_managed FROM item i JOIN item_variant iv ON i.id = iv.item_id WHERE iv.id = ?',
+                // Restore stock using LIFO (Last In, First Out)
+                db.all(
+                  'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC',
                   [oldItem.item_variant_id],
-                  (err, row) => {
+                  (err, batches) => {
                     if (err && !restoreError) {
                       restoreError = true;
                       db.run('ROLLBACK');
                       return res.status(500).json({ error: err.message });
                     }
                     
-                    const isQtyManaged = row ? row.is_qty_managed : 1;
+                    let remainingQty = oldItem.qty;
+                    let batchIndex = 0;
                     
-                    if (isQtyManaged) {
-                      // Restore stock using LIFO (Last In, First Out)
-                      db.all(
-                        'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC',
-                        [oldItem.item_variant_id],
-                        (err, batches) => {
+                    const restoreBatch = () => {
+                      if (remainingQty <= 0 || batchIndex >= batches.length) {
+                        restoreProcessed++;
+                        if (restoreProcessed === oldItems.length && !restoreError) {
+                          proceedWithDelete();
+                        }
+                        return;
+                      }
+                      
+                      const batch = batches[batchIndex];
+                      
+                      db.run(
+                        'UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?',
+                        [remainingQty, batch.id],
+                        (err) => {
                           if (err && !restoreError) {
                             restoreError = true;
                             db.run('ROLLBACK');
                             return res.status(500).json({ error: err.message });
                           }
                           
-                          let remainingQty = oldItem.qty;
-                          let batchIndex = 0;
-                          
-                          const restoreBatch = () => {
-                            if (remainingQty <= 0 || batchIndex >= batches.length) {
-                              restoreProcessed++;
-                              if (restoreProcessed === oldItems.length && !restoreError) {
-                                proceedWithDelete();
-                              }
-                              return;
-                            }
-                            
-                            const batch = batches[batchIndex];
-                            
-                            db.run(
-                              'UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?',
-                              [remainingQty, batch.id],
-                              (err) => {
-                                if (err && !restoreError) {
-                                  restoreError = true;
-                                  db.run('ROLLBACK');
-                                  return res.status(500).json({ error: err.message });
-                                }
-                                
-                                remainingQty = 0; // All restored to this batch
-                                batchIndex++;
-                                restoreBatch();
-                              }
-                            );
-                          };
-                          
+                          remainingQty = 0; // All restored to this batch
+                          batchIndex++;
                           restoreBatch();
                         }
                       );
-                    } else {
-                      // No stock management, just proceed
-                      restoreProcessed++;
-                      if (restoreProcessed === oldItems.length && !restoreError) {
-                        proceedWithDelete();
-                      }
-                    }
+                    };
+                    
+                    restoreBatch();
                   }
                 );
               });
@@ -723,153 +616,97 @@ router.put('/:id', (req, res) => {
                           return res.status(500).json({ error: err.message });
                         }
                         
-                        // Check if item is quantity managed
-                        db.get(
-                          'SELECT i.is_qty_managed FROM item i JOIN item_variant iv ON i.id = iv.item_id WHERE iv.id = ?',
-                          [item.item_variant_id],
-                          (err, row) => {
-                            if (err && !hasError) {
-                              hasError = true;
-                              db.run('ROLLBACK');
-                              return res.status(500).json({ error: err.message });
-                            }
-                            
-                            const isQtyManaged = row ? row.is_qty_managed : 1; // Default to managed if not found
-                            
-                            if (isQtyManaged) {
-                              // Update stock using FIFO (First In, First Out)
-                              const deductStockFIFO = (itemVariantId, quantity, callback) => {
-                                // Get batches ordered by creation date (oldest first)
-                                db.all(
-                                  'SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC',
-                                  [itemVariantId],
-                                  (err, batches) => {
+                        // Update stock using FIFO (First In, First Out)
+                        const deductStockFIFO = (itemVariantId, quantity, callback) => {
+                          // Get batches ordered by creation date (oldest first)
+                          db.all(
+                            'SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC',
+                            [itemVariantId],
+                            (err, batches) => {
+                              if (err) {
+                                return callback(err);
+                              }
+                              
+                              let remainingQty = quantity;
+                              let batchIndex = 0;
+                              
+                              const processBatch = () => {
+                                if (remainingQty <= 0 || batchIndex >= batches.length) {
+                                  if (remainingQty > 0) {
+                                    return callback(new Error('Insufficient stock'));
+                                  }
+                                  return callback(null);
+                                }
+                                
+                                const batch = batches[batchIndex];
+                                const deductQty = Math.min(remainingQty, batch.remaining_qty);
+                                
+                                db.run(
+                                  'UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?',
+                                  [deductQty, batch.id],
+                                  (err) => {
                                     if (err) {
                                       return callback(err);
                                     }
                                     
-                                    let remainingQty = quantity;
-                                    let batchIndex = 0;
-                                    
-                                    const processBatch = () => {
-                                      if (remainingQty <= 0 || batchIndex >= batches.length) {
-                                        if (remainingQty > 0) {
-                                          return callback(new Error('Insufficient stock'));
-                                        }
-                                        return callback(null);
-                                      }
-                                      
-                                      const batch = batches[batchIndex];
-                                      const deductQty = Math.min(remainingQty, batch.remaining_qty);
-                                      
-                                      db.run(
-                                        'UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?',
-                                        [deductQty, batch.id],
-                                        (err) => {
-                                          if (err) {
-                                            return callback(err);
-                                          }
-                                          
-                                          remainingQty -= deductQty;
-                                          batchIndex++;
-                                          processBatch();
-                                        }
-                                      );
-                                    };
-                                    
+                                    remainingQty -= deductQty;
+                                    batchIndex++;
                                     processBatch();
                                   }
                                 );
                               };
                               
-                              // Deduct stock using FIFO
-                              deductStockFIFO(item.item_variant_id, item.qty, (err) => {
-                                if (err && !hasError) {
-                                  hasError = true;
-                                  db.run('ROLLBACK');
-                                  return res.status(500).json({ error: err.message });
-                                }
-                                
-                                itemsProcessed++;
-                                if (itemsProcessed === items.length && !hasError) {
-                                  db.run('COMMIT', (err) => {
-                                    if (err) {
-                                      return res.status(500).json({ error: err.message });
-                                    }
-                                    
-                                    // Adjust cashier cash based on status and total changes
-                                    let cash_change = 0;
-                                    if (status === 'completed') {
-                                      if (oldOrder.old_status === 'completed') {
-                                        cash_change = total_amount - oldOrder.old_total;
-                                      } else {
-                                        cash_change = total_amount;
-                                      }
-                                    } else {
-                                      if (oldOrder.old_status === 'completed') {
-                                        cash_change = -oldOrder.old_total;
-                                      }
-                                    }
-                                    
-                                    if (cash_change !== 0) {
-                                      db.run(
-                                        `UPDATE cashier_shift 
-                                         SET current_cash_onhand = current_cash_onhand + ? 
-                                         WHERE user_id = ? AND status = 'open'`,
-                                        [cash_change, oldOrder.admin_id]
-                                      );
-                                    }
-                                    
-                                    res.json({
-                                      id: id,
-                                      total_amount,
-                                      message: 'Order updated successfully'
-                                    });
-                                  });
-                                }
-                              });
-                            } else {
-                              // No stock management, just proceed
-                              itemsProcessed++;
-                              if (itemsProcessed === items.length && !hasError) {
-                                db.run('COMMIT', (err) => {
-                                  if (err) {
-                                    return res.status(500).json({ error: err.message });
-                                  }
-                                  
-                                  // Adjust cashier cash based on status and total changes
-                                  let cash_change = 0;
-                                  if (status === 'completed') {
-                                    if (oldOrder.old_status === 'completed') {
-                                      cash_change = total_amount - oldOrder.old_total;
-                                    } else {
-                                      cash_change = total_amount;
-                                    }
-                                  } else {
-                                    if (oldOrder.old_status === 'completed') {
-                                      cash_change = -oldOrder.old_total;
-                                    }
-                                  }
-                                  
-                                  if (cash_change !== 0) {
-                                    db.run(
-                                      `UPDATE cashier_shift 
-                                       SET current_cash_onhand = current_cash_onhand + ? 
-                                       WHERE user_id = ? AND status = 'open'`,
-                                      [cash_change, oldOrder.admin_id]
-                                    );
-                                  }
-                                  
-                                  res.json({
-                                    id: id,
-                                    total_amount,
-                                    message: 'Order updated successfully'
-                                  });
-                                });
-                              }
+                              processBatch();
                             }
+                          );
+                        };
+                        
+                        // Deduct stock using FIFO
+                        deductStockFIFO(item.item_variant_id, item.qty, (err) => {
+                          if (err && !hasError) {
+                            hasError = true;
+                            db.run('ROLLBACK');
+                            return res.status(500).json({ error: err.message });
                           }
-                        );
+                          
+                          itemsProcessed++;
+                          if (itemsProcessed === items.length && !hasError) {
+                            db.run('COMMIT', (err) => {
+                              if (err) {
+                                return res.status(500).json({ error: err.message });
+                              }
+                              
+                              // Adjust cashier cash based on status and total changes
+                              let cash_change = 0;
+                              if (status === 'completed') {
+                                if (oldOrder.old_status === 'completed') {
+                                  cash_change = total_amount - oldOrder.old_total;
+                                } else {
+                                  cash_change = total_amount;
+                                }
+                              } else {
+                                if (oldOrder.old_status === 'completed') {
+                                  cash_change = -oldOrder.old_total;
+                                }
+                              }
+                              
+                              if (cash_change !== 0) {
+                                db.run(
+                                  `UPDATE cashier_shift 
+                                   SET current_cash_onhand = current_cash_onhand + ? 
+                                   WHERE user_id = ? AND status = 'open'`,
+                                  [cash_change, oldOrder.admin_id]
+                                );
+                              }
+                              
+                              res.json({
+                                id: id,
+                                total_amount,
+                                message: 'Order updated successfully'
+                              });
+                            });
+                          }
+                        });
                       }
                     );
                   });

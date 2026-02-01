@@ -87,7 +87,6 @@ const createTables = () => {
         category_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         image TEXT,
-        is_qty_managed BOOLEAN DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (category_id) REFERENCES category(id)
       )

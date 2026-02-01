@@ -122,8 +122,8 @@ const POSInterface = () => {
 
       const itemVariant = await response.json();
 
-      // Check if item has stock (only if quantity managed)
-      if (itemVariant.is_qty_managed && itemVariant.total_stock <= 0) {
+      // Check if item has stock
+      if (itemVariant.total_stock <= 0) {
         toast.error(`${itemVariant.item_name} is out of stock`);
         return;
       }
@@ -191,8 +191,7 @@ const POSInterface = () => {
     dispatch(addItemToOrder({ itemVariant: validItem, quantity: 1 }));
   }, [dispatch]);
 
-  const getStockStatus = (stock, isQtyManaged) => {
-    if (!isQtyManaged) return { label: 'Available', color: 'success' };
+  const getStockStatus = (stock) => {
     if (stock <= 0) return { label: 'Out of Stock', color: 'error' };
     if (stock <= 10) return { label: 'Low Stock', color: 'warning' };
     return { label: 'In Stock', color: 'success' };
@@ -406,8 +405,8 @@ const POSInterface = () => {
             <Grid container spacing={2}>
               {(filteredItems || []).map((item) => {
                 if (!item) return null;
-                const stockStatus = getStockStatus(item.total_stock || 0, item.is_qty_managed);
-                const isOutOfStock = item.is_qty_managed && (item.total_stock || 0) <= 0;
+                const stockStatus = getStockStatus(item.total_stock || 0);
+                const isOutOfStock = (item.total_stock || 0) <= 0;
                 return (
                   <Grid item xs={12} sm={6} md={4} lg={3} key={item.id || Math.random()}>
                     <Card
@@ -483,7 +482,7 @@ const POSInterface = () => {
 
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1 }}>
                           <Typography variant="caption" color="text.secondary">
-                            Stock: {item.is_qty_managed ? (item.total_stock || 0) + ' units' : 'Not managed'}
+                            Stock: {(item.total_stock || 0)} units
                           </Typography>
 
                           <Box>
