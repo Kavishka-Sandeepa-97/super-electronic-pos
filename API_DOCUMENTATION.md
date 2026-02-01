@@ -1,18 +1,17 @@
-# Restaurant POS System - API Documentation
+# Cosmetic Shop POS System - API Documentation
 
 ## Overview
-This is a comprehensive REST API for a restaurant POS system built with Express.js and SQLite, following the provided ER diagram.
+This is a comprehensive REST API for a cosmetic shop POS system built with Express.js and SQLite.
 
 ## Database Schema
 The system implements the following entities:
 - **Staff** - User management with roles (admin/cashier)
 - **Category** - Product categories
-- **Item** - Menu items
-- **Variant** - Item variants (sizes, types, etc.)
+- **Item** - Products/Items
+- **Variant** - Item variants (sizes, types, colors, etc.)
 - **Item Variant** - Specific item variants with barcodes
 - **Order** - Customer orders
 - **Item Variant Order** - Order line items
-- **Stock Batch** - Inventory management
 - **Sell Price History** - Price tracking
 
 ## API Endpoints
@@ -64,20 +63,22 @@ The system implements the following entities:
 - `PUT /api/orders/:id/status` - Update order status
 - `GET /api/orders/reports/daily` - Daily sales report
 
-### Stock Management
-- `GET /api/stock` - Get all stock batches
-- `GET /api/stock/:id` - Get stock batch by ID
-- `POST /api/stock` - Create new stock batch (add inventory)
-- `PUT /api/stock/:id` - Update stock batch
-- `PUT /api/stock/:id/adjust` - Adjust stock quantity
-- `GET /api/stock/summary/by-item` - Stock summary by item
-- `GET /api/stock/alerts/low-stock` - Low stock alerts
-- `GET /api/stock/movements/:item_variant_id` - Stock movement history
+### Cashier Shift Management
+- `GET /api/cashier-shifts` - Get all shifts
+- `GET /api/cashier-shifts/active/:user_id` - Get active shift for user
+- `POST /api/cashier-shifts/open` - Open new shift
+- `PUT /api/cashier-shifts/:id/close` - Close shift
+- `PUT /api/cashier-shifts/:id/cash` - Update cash on hand
+
+### In/Out Management
+- `GET /api/in-out` - Get all transactions
+- `POST /api/in-out` - Create new transaction
+- `GET /api/in-out/summary` - Get summary report
 
 ## Features Implemented
 
 ### ✅ Database Structure
-- Complete SQLite schema based on ER diagram
+- Complete SQLite schema
 - Foreign key relationships
 - Data validation and constraints
 - Default data seeding
@@ -86,30 +87,25 @@ The system implements the following entities:
 - Staff login with PIN
 - Role-based access (admin/cashier)
 - User management
+- Cashier shift management
 
 ### ✅ Product Management
 - Categories and items
 - Variants and item variants
 - Barcode support
 - Image support for items
-
-### ✅ Inventory Management
-- Stock batches with buy prices
-- Stock adjustments
-- Low stock alerts
-- Stock movement tracking
+- Price history tracking
 
 ### ✅ Order Processing
 - Complete order creation
 - Order status management
 - Discount support (fixed/percentage)
-- Automatic stock deduction
+- Cash handling
 
 ### ✅ Reporting
 - Daily sales reports
 - Top selling items
-- Stock summaries
-- Movement history
+- In/Out transaction tracking
 
 ### ✅ Error Handling
 - Comprehensive error responses
@@ -120,20 +116,19 @@ The system implements the following entities:
 - Default admin user: PIN `1234`
 - Default categories: Liquor, Beverages, Hot Meals, Desserts, Snacks, Tobacco, Other
 
-## Next Steps for Frontend Integration
-1. Update React components to use new API endpoints
-2. Implement authentication flow
-3. Create product management interface
-4. Build order processing UI
-5. Add inventory management screens
-6. Implement reporting dashboard
+## Next Steps for Cosmetic Shop Customization
+1. Update default categories (Makeup, Skincare, Hair Care, Fragrances, etc.)
+2. Add brand management features
+3. Implement batch/expiry date tracking
+4. Add customer loyalty program
+5. Create product recommendation system
 
 ## Hardware Integration Ready
 The API is structured to support:
 - Cash drawer integration
-- QR code scanner (barcode lookup)
+- Barcode scanner (product lookup)
 - Receipt printing
-- Kitchen display systems
+- Customer display systems
 
 ## Testing
 Use the health check endpoint: `GET /api/health`

@@ -148,20 +148,6 @@ const createTables = () => {
       )
     `);
 
-    // Stock Batch table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS stock_batch (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_variant_id INTEGER NOT NULL,
-        buy_price DECIMAL(10,2) NOT NULL,
-        initial_qty INTEGER NOT NULL,
-        remaining_qty INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        description TEXT,
-        FOREIGN KEY (item_variant_id) REFERENCES item_variant(id)
-      )
-    `);
-
     // Sell Price History table
     db.run(`
       CREATE TABLE IF NOT EXISTS sell_price_history (
@@ -170,65 +156,7 @@ const createTables = () => {
         user_id INTEGER NOT NULL,
         selling_price DECIMAL(10,2) NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        stock_batch_id INTEGER,
         FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
-        FOREIGN KEY (user_id) REFERENCES staff(id),
-        FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
-      )
-    `);
-
-    // Unit table (for stock management)
-    db.run(`
-      CREATE TABLE IF NOT EXISTS unit (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE
-      )
-    `);
-
-    // Stock Category table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS stock_category (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE
-      )
-    `);
-
-    // Stock Supplier table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS stock_supplier (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT
-      )
-    `);
-
-    // Stock Product table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS stock_product (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        category_id INTEGER NOT NULL,
-        unit_id INTEGER NOT NULL,
-        current_qty DECIMAL(10,2) DEFAULT 0,
-        FOREIGN KEY (category_id) REFERENCES stock_category(id),
-        FOREIGN KEY (unit_id) REFERENCES unit(id)
-      )
-    `);
-
-    // Stock Transaction table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS stock_transaction (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        supplier_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        description TEXT,
-        type TEXT CHECK(type IN ('IN', 'OUT')) NOT NULL,
-        price DECIMAL(10,2),
-        qty DECIMAL(10,2) NOT NULL,
-        user_id INTEGER NOT NULL,
-        FOREIGN KEY (product_id) REFERENCES stock_product(id),
-        FOREIGN KEY (supplier_id) REFERENCES stock_supplier(id),
         FOREIGN KEY (user_id) REFERENCES staff(id)
       )
     `);
@@ -259,8 +187,6 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_item_variant_item ON item_variant(item_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_variant ON item_variant(variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_barcode ON item_variant(barcode)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant ON stock_batch(item_variant_id)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_batch_created ON stock_batch(created_at)',
     'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)',
     'CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date)',
     'CREATE INDEX IF NOT EXISTS idx_orders_admin ON orders(admin_id)',
@@ -268,9 +194,6 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_variant ON item_variant_order(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_variant ON sell_price_history(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_created ON sell_price_history(created_at)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_product_category ON stock_product(category_id)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_transaction_product ON stock_transaction(product_id)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_transaction_created ON stock_transaction(created_at)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_user ON cashier_shift(user_id)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_status ON cashier_shift(status)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_open_at ON cashier_shift(open_at)'

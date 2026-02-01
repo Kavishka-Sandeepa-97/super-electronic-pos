@@ -37,9 +37,7 @@ import {
   PlayArrow,
   Stop,
   Refresh,
-  
   Restaurant,
-  Warehouse,
 } from '@mui/icons-material';
 import { logout } from '../../store/slices/authSlice';
 import { setSidebarOpen, setCurrentView } from '../../store/slices/uiSlice';
@@ -108,9 +106,6 @@ const MainLayout = ({ children }) => {
     { type: 'item', text: 'Inventory', icon: <Inventory />, path: '/inventory', view: 'inventory' },
     { type: 'item', text: 'In/Out Management', icon: <Receipt />, path: '/inout', view: 'inout' },
     { type: 'item', text: 'POS Reports', icon: <Analytics />, path: '/reports', view: 'reports' },
-    { type: 'divider' },
-    { type: 'item', text: 'Stock Management', icon: <Warehouse />, path: '/stock', view: 'stock' },
-    { type: 'item', text: 'Stock Report', icon: <Analytics />, path: '/stock-report', view: 'stock-report' },
     { type: 'divider' },
     { type: 'item', text: 'Settings', icon: <Settings />, path: '/settings', view: 'settings' },
   ];

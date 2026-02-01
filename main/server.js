@@ -12,12 +12,6 @@ const itemRoutes = require('./routes/item');
 const variantRoutes = require('./routes/variant');
 const itemVariantRoutes = require('./routes/itemVariant');
 const orderRoutes = require('./routes/order');
-const stockRoutes = require('./routes/stock');
-const stockUnitRoutes = require('./routes/stockUnit');
-const stockCategoryRoutes = require('./routes/stockCategory');
-const stockSupplierRoutes = require('./routes/stockSupplier');
-const stockProductRoutes = require('./routes/stockProduct');
-const stockTransactionRoutes = require('./routes/stockTransaction');
 const inOutRoutes = require('./routes/inOut');
 const cashierShiftRoutes = require('./routes/cashierShift');
 const reportsRoutes = require('./routes/reports');
@@ -82,14 +76,6 @@ server.use('/api/item-variants', itemVariantRoutes);
 server.use('/api/orders', orderRoutes);
 server.use('/api/in-out', inOutRoutes);
 server.use('/api/cashier-shifts', cashierShiftRoutes);
-// Stock management routes - must be before '/api/stock'
-server.use('/api/stock/units', stockUnitRoutes);
-server.use('/api/stock/categories', stockCategoryRoutes);
-server.use('/api/stock/suppliers', stockSupplierRoutes);
-server.use('/api/stock/products', stockProductRoutes);
-server.use('/api/stock/transactions', stockTransactionRoutes);
-// General stock route
-server.use('/api/stock', stockRoutes);
 
 // Reports routes
 server.use('/api/reports', reportsRoutes);

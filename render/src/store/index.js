@@ -3,7 +3,6 @@ import authSlice from './slices/authSlice';
 import orderSlice from './slices/orderSlice';
 import inventorySlice from './slices/inventorySlice';
 import uiSlice from './slices/uiSlice';
-import stockSlice from './slices/stockSlice';
 import cashierShiftSlice from './slices/cashierShiftSlice';
 
 export const store = configureStore({
@@ -12,7 +11,6 @@ export const store = configureStore({
     order: orderSlice,
     inventory: inventorySlice,
     ui: uiSlice,
-    stock: stockSlice,
     cashierShift: cashierShiftSlice,
   },
   middleware: (getDefaultMiddleware) =>

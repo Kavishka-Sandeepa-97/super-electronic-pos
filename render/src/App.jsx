@@ -16,9 +16,7 @@ import POSInterface from './components/pos/POSInterface';
 import ActiveOrders from './components/orders/ActiveOrders';
 import Inventory from './components/inventory/Inventory';
 import Reports from './components/reports/Reports';
-import StockReports from './components/reports/StockReports';
 import Settings from './components/settings/Settings';
-import StockManagement from './components/stock/StockManagement';
 import InOutManagement from './components/pos/InOutManagement';
 
 // Theme configuration
@@ -159,17 +157,6 @@ const AppContent = () => {
         />
         
         <Route
-          path="/stock"
-          element={
-            <ProtectedRoute>
-              <MainLayout>
-                <StockManagement />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        
-        <Route
           path="/inout"
           element={
             <ProtectedRoute>
@@ -186,17 +173,6 @@ const AppContent = () => {
             <ProtectedRoute>
               <MainLayout>
                 <Reports />
-              </MainLayout>
-            </ProtectedRoute>
-          }
-        />
-        
-        <Route
-          path="/stock-report"
-          element={
-            <ProtectedRoute>
-              <MainLayout>
-                <StockReports />
               </MainLayout>
             </ProtectedRoute>
           }
