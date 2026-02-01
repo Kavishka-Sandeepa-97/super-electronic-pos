@@ -1,0 +1,571 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Typography,
+  Grid,
+  Card,
+  CardContent,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  TextField,
+  Button,
+  Tabs,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Chip,
+  IconButton,
+  Tooltip,
+} from '@mui/material';
+import {
+  Download as DownloadIcon,
+  TrendingUp as TrendingUpIcon,
+  ShoppingCart as ShoppingCartIcon,
+  Category as CategoryIcon,
+} from '@mui/icons-material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs from 'dayjs';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts';
+import { reportsAPI } from '../../services/api';
+import { toast } from 'react-toastify';
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+
+const Reports = () => {
+  const [activeTab, setActiveTab] = useState(0);
+  const [period, setPeriod] = useState('month');
+  const [startDate, setStartDate] = useState(dayjs().subtract(1, 'month'));
+  const [endDate, setEndDate] = useState(dayjs());
+  const [revenueData, setRevenueData] = useState([]);
+  const [topProductsData, setTopProductsData] = useState([]);
+  const [categorySalesData, setCategorySalesData] = useState([]);
+  const [productDetailsData, setProductDetailsData] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const fetchReportsData = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+
+      if (period === 'custom') {
+        params.start_date = startDate.format('YYYY-MM-DD');
+        params.end_date = endDate.format('YYYY-MM-DD');
+      } else {
+        params.period = period;
+      }
+
+      const [revenueRes, topProductsRes, categorySalesRes, productDetailsRes] = await Promise.all([
+        reportsAPI.getRevenue(params),
+        reportsAPI.getTopProducts({ ...params, limit: 10 }),
+        reportsAPI.getCategorySales(params),
+        reportsAPI.getTopProducts({ ...params, limit: 100 }), // Get all products for details view
+      ]);
+
+      setRevenueData(revenueRes.data || []);
+      setTopProductsData(topProductsRes.data || []);
+      setCategorySalesData(categorySalesRes.data || []);
+      setProductDetailsData(productDetailsRes.data || []);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      toast.error('Failed to load reports data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportsData();
+  }, [period, startDate, endDate]);
+
+  // Filter product details data based on search term
+  const filteredProductDetails = productDetailsData.filter(product => {
+    if (!searchTerm) return true; // Show all if no search term
+    
+    const searchLower = searchTerm.toLowerCase();
+    const itemName = (product.item_name || '').toLowerCase();
+    const variantName = (product.variant_name || '').toLowerCase();
+    const barcode = (product.barcode || '').toLowerCase();
+    
+    return (
+      itemName.includes(searchLower) ||
+      variantName.includes(searchLower) ||
+      barcode.includes(searchLower)
+    );
+  });
+
+  const handlePeriodChange = (event) => {
+    setPeriod(event.target.value);
+  };
+
+  const handleDownloadReport = (type) => {
+    // Simple CSV export for now
+    let csvContent = '';
+    let filename = '';
+
+    switch (type) {
+      case 'revenue':
+        csvContent = 'Period,Orders,Revenue,Min Order,Max Order\n' +
+          revenueData.map(row =>
+            `${row.period},${row.order_count},${row.total_revenue},${row.min_order},${row.max_order}`
+          ).join('\n');
+        filename = 'revenue_report.csv';
+        break;
+      case 'top-products':
+        csvContent = 'Product,Variant,Barcode,Quantity,Revenue,Orders\n' +
+          topProductsData.map(row =>
+            `"${row.item_name}","${row.variant_name}","${row.barcode}",${row.total_quantity},${row.total_revenue},${row.order_count}`
+          ).join('\n');
+        filename = 'top_products_report.csv';
+        break;
+      case 'category-sales':
+        csvContent = 'Category,Orders,Quantity,Revenue\n' +
+          categorySalesData.map(row =>
+            `"${row.category_name}",${row.order_count},${row.total_quantity},${row.total_revenue}`
+          ).join('\n');
+        filename = 'category_sales_report.csv';
+        break;
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount || 0);
+  };
+
+  const totalRevenue = revenueData.reduce((sum, item) => sum + parseFloat(item.total_revenue || 0), 0);
+  const totalOrders = revenueData.reduce((sum, item) => sum + parseInt(item.order_count || 0), 0);
+
+  return (
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box p={3}>
+        <Typography variant="h4" fontWeight="bold" mb={3}>
+          POS Reports
+        </Typography>
+
+        {/* Filters */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={3}>
+                <FormControl fullWidth>
+                  <InputLabel>Period</InputLabel>
+                  <Select value={period} onChange={handlePeriodChange}>
+                    <MenuItem value="today">Today</MenuItem>
+                    <MenuItem value="week">This Week</MenuItem>
+                    <MenuItem value="month">This Month</MenuItem>
+                    <MenuItem value="year">This Year</MenuItem>
+                    <MenuItem value="custom">Custom Range</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              {period === 'custom' && (
+                <>
+                  <Grid item xs={12} sm={3}>
+                    <DatePicker
+                      label="Start Date"
+                      value={startDate}
+                      onChange={setStartDate}
+                      renderInput={(params) => <TextField {...params} fullWidth />}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <DatePicker
+                      label="End Date"
+                      value={endDate}
+                      onChange={setEndDate}
+                      renderInput={(params) => <TextField {...params} fullWidth />}
+                    />
+                  </Grid>
+                </>
+              )}
+              <Grid item xs={12} sm={3}>
+                <Button
+                  variant="contained"
+                  onClick={fetchReportsData}
+                  disabled={loading}
+                  fullWidth
+                >
+                  {loading ? 'Loading...' : 'Refresh'}
+                </Button>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* Summary Cards */}
+        <Grid container spacing={3} mb={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Box display="flex" alignItems="center" mb={1}>
+                  <TrendingUpIcon color="primary" sx={{ mr: 1 }} />
+                  <Typography variant="h6">Total Revenue</Typography>
+                </Box>
+                <Typography variant="h4" color="primary">
+                  {formatCurrency(totalRevenue)}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Box display="flex" alignItems="center" mb={1}>
+                  <ShoppingCartIcon color="secondary" sx={{ mr: 1 }} />
+                  <Typography variant="h6">Total Orders</Typography>
+                </Box>
+                <Typography variant="h4" color="secondary">
+                  {totalOrders}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Tabs for different report views */}
+        <Card>
+          <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
+            <Tab label="Revenue Trend" />
+            <Tab label="Top Products" />
+            <Tab label="Category Sales" />
+            <Tab label="Product Details" />
+          </Tabs>
+
+          <CardContent>
+            {activeTab === 0 && (
+              <Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="h6">Revenue Over Time</Typography>
+                  <Tooltip title="Download CSV">
+                    <IconButton onClick={() => handleDownloadReport('revenue')}>
+                      <DownloadIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={revenueData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" />
+                    <YAxis tickFormatter={formatCurrency} width={80} />
+                    <RechartsTooltip formatter={(value) => formatCurrency(value)} />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="total_revenue"
+                      stroke="#8884d8"
+                      name="Revenue"
+                      strokeWidth={2}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="order_count"
+                      stroke="#82ca9d"
+                      name="Orders"
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+                <TableContainer component={Paper} sx={{ mt: 2 }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Period</TableCell>
+                        <TableCell align="right">Orders</TableCell>
+                        <TableCell align="right">Revenue</TableCell>
+                        <TableCell align="right">Min Order</TableCell>
+                        <TableCell align="right">Max Order</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {revenueData.map((row) => (
+                        <TableRow key={row.period}>
+                          <TableCell>{row.period}</TableCell>
+                          <TableCell align="right">{row.order_count}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.total_revenue)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.min_order)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.max_order)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {activeTab === 1 && (
+              <Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="h6">Top Selling Products</Typography>
+                  <Tooltip title="Download CSV">
+                    <IconButton onClick={() => handleDownloadReport('top-products')}>
+                      <DownloadIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart data={topProductsData.slice(0, 10)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="item_name" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <RechartsTooltip formatter={(value) => [value, 'Quantity']} />
+                    <Bar dataKey="total_quantity" fill="#8884d8" name="Quantity Sold" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <TableContainer component={Paper} sx={{ mt: 2 }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Product</TableCell>
+                        <TableCell>Variant</TableCell>
+                        <TableCell>Barcode</TableCell>
+                        <TableCell align="right">Quantity</TableCell>
+                        <TableCell align="right">Revenue</TableCell>
+                        <TableCell align="right">Orders</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {topProductsData.map((row, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{row.item_name}</TableCell>
+                          <TableCell>{row.variant_name}</TableCell>
+                          <TableCell>
+                            <Chip label={row.barcode} size="small" />
+                          </TableCell>
+                          <TableCell align="right">{row.total_quantity}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.total_revenue)}</TableCell>
+                          <TableCell align="right">{row.order_count}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {activeTab === 2 && (
+              <Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="h6">Sales by Category</Typography>
+                  <Tooltip title="Download CSV">
+                    <IconButton onClick={() => handleDownloadReport('category-sales')}>
+                      <DownloadIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={8}>
+                    <ResponsiveContainer width="100%" height={400}>
+                      <BarChart data={categorySalesData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="category_name" angle={-45} textAnchor="end" height={100} />
+                        <YAxis tickFormatter={formatCurrency} />
+                        <RechartsTooltip formatter={(value) => formatCurrency(value)} />
+                        <Bar dataKey="total_revenue" fill="#82ca9d" name="Revenue" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <ResponsiveContainer width="100%" height={400}>
+                      <PieChart>
+                        <Pie
+                          data={categorySalesData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ category_name, percent }) => `${category_name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="total_revenue"
+                        >
+                          {categorySalesData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip formatter={(value) => formatCurrency(value)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </Grid>
+                </Grid>
+                <TableContainer component={Paper} sx={{ mt: 2 }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Category</TableCell>
+                        <TableCell align="right">Orders</TableCell>
+                        <TableCell align="right">Quantity</TableCell>
+                        <TableCell align="right">Revenue</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {categorySalesData.map((row, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{row.category_name}</TableCell>
+                          <TableCell align="right">{row.order_count}</TableCell>
+                          <TableCell align="right">{row.total_quantity}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.total_revenue)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {activeTab === 3 && (
+              <Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="h6">Item Variant Sales Details</Typography>
+                  <Box display="flex" gap={1}>
+                    <TextField
+                      size="small"
+                      placeholder="Search product, variant, or barcode..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      sx={{ width: 300 }}
+                      InputProps={{
+                        startAdornment: (
+                          <Box component="span" sx={{ mr: 1, display: 'flex', alignItems: 'center' }}>
+                            🔍
+                          </Box>
+                        ),
+                      }}
+                    />
+                    <Tooltip title="Download CSV">
+                      <IconButton onClick={() => handleDownloadReport('product-details')}>
+                        <DownloadIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+                
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart data={filteredProductDetails.slice(0, 20)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="item_name" 
+                      angle={-45} 
+                      textAnchor="end" 
+                      height={120}
+                      tickFormatter={(value, index) => {
+                        const item = filteredProductDetails[index];
+                        return item ? `${item.item_name} ${item.variant_name}` : value;
+                      }}
+                    />
+                    <YAxis yAxisId="left" orientation="left" stroke="#8884d8" />
+                    <YAxis yAxisId="right" orientation="right" stroke="#82ca9d" />
+                    <RechartsTooltip 
+                      formatter={(value, name) => {
+                        if (name === 'Quantity') return [value, 'Qty'];
+                        if (name === 'Revenue') return [formatCurrency(value), 'Total'];
+                        return [value, name];
+                      }}
+                      labelFormatter={(label, payload) => {
+                        if (payload && payload.length > 0) {
+                          const data = payload[0].payload;
+                          return `${data.item_name} - ${data.variant_name}`;
+                        }
+                        return label;
+                      }}
+                    />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="total_quantity" fill="#8884d8" name="Quantity" />
+                    <Bar yAxisId="right" dataKey="total_revenue" fill="#82ca9d" name="Revenue" />
+                  </BarChart>
+                </ResponsiveContainer>
+
+                {searchTerm && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 1 }}>
+                    Showing {filteredProductDetails.length} of {productDetailsData.length} products
+                  </Typography>
+                )}
+
+                <TableContainer component={Paper} sx={{ mt: 2, maxHeight: 600 }}>
+                  <Table stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Product Name</strong></TableCell>
+                        <TableCell><strong>Variant</strong></TableCell>
+                        <TableCell><strong>Barcode</strong></TableCell>
+                        <TableCell align="right"><strong>Qty Sold</strong></TableCell>
+                        <TableCell align="right"><strong>Total Revenue</strong></TableCell>
+                        <TableCell align="right"><strong>Orders</strong></TableCell>
+                        <TableCell align="right"><strong>Avg/Order</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filteredProductDetails.map((row, index) => (
+                        <TableRow key={index} hover>
+                          <TableCell>{row.item_name}</TableCell>
+                          <TableCell>
+                            <Chip label={row.variant_name} size="small" color="primary" variant="outlined" />
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={row.barcode} size="small" />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold">
+                              {row.total_quantity}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="success.main" fontWeight="bold">
+                              {formatCurrency(row.total_revenue)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">{row.order_count}</TableCell>
+                          <TableCell align="right">
+                            {formatCurrency(row.total_revenue / row.order_count)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Box>
+    </LocalizationProvider>
+  );
+};
+
+export default Reports;
