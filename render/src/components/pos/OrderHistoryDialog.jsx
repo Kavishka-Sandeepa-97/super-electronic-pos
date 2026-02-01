@@ -423,14 +423,6 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                         </TableCell>
                         <TableCell>
                           <Box>
-                            {order.table_number && (
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Restaurant fontSize="small" color="action" />
-                                <Typography variant="body2">
-                                  Table {order.table_number}
-                                </Typography>
-                              </Box>
-                            )}
                             {order.customer_name && (
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <Person fontSize="small" color="action" />
@@ -439,7 +431,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                                 </Typography>
                               </Box>
                             )}
-                            {!order.table_number && !order.customer_name && (
+                            {!order.customer_name && (
                               <Typography variant="body2" color="text.secondary">
                                 N/A
                               </Typography>
@@ -563,9 +555,6 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                   label={`Status: ${selectedOrder.status}`}
                   color={getStatusColor(selectedOrder.status)}
                 />
-                {selectedOrder.table_number && (
-                  <Chip icon={<Restaurant />} label={`Table ${selectedOrder.table_number}`} />
-                )}
                 {selectedOrder.customer_name && (
                   <Chip icon={<Person />} label={selectedOrder.customer_name} />
                 )}

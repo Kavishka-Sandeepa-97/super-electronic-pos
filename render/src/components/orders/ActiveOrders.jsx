@@ -156,18 +156,14 @@ const ActiveOrders = () => {
               <CardContent>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                   <Box display="flex" alignItems="center" gap={1}>
-                    <TableIcon color="primary" />
                     <Typography variant="h6" fontWeight="bold">
-                      Table {order.tableNumber}
+                      Order #{order.id}
                     </Typography>
                   </Box>
                   {getOrderTypeIcon(order.items)}
                 </Box>
 
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Typography variant="body2" color="text.secondary">
-                    Order #{order.id}
-                  </Typography>
                   <Chip
                     label={order.status.toUpperCase()}
                     color={getStatusColor(order.status)}
@@ -290,7 +286,7 @@ const ActiveOrders = () => {
         fullWidth
       >
         <DialogTitle>
-          Edit Order #{selectedOrder?.id} - Table {selectedOrder?.tableNumber}
+          Edit Order #{selectedOrder?.id}
         </DialogTitle>
         <DialogContent>
           <List>

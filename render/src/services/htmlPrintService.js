@@ -177,7 +177,6 @@ const htmlPrintService = {
             <div class="receipt">
               <div class="center"><h2>KITCHEN ORDER TICKET</h2></div>
               <div>Order #: ${order.id || ''}</div>
-              <div>Table: ${order.tableNumber || ''}</div>
               <div>Date: ${new Date().toLocaleDateString()}</div>
               <div>Time: ${new Date().toLocaleTimeString()}</div>
               <div class="sep"></div>
@@ -236,7 +235,6 @@ const htmlPrintService = {
             <div class="receipt">
               <div class="center"><h2>BAR ORDER TICKET</h2></div>
               <div>Order #: ${order.id || ''}</div>
-              <div>Table: ${order.tableNumber || ''}</div>
               <div>Date: ${new Date().toLocaleDateString()}</div>
               <div>Time: ${new Date().toLocaleTimeString()}</div>
               <div class="sep"></div>

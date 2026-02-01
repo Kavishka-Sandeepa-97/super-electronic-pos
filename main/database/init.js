@@ -123,7 +123,6 @@ const createTables = () => {
         date DATETIME DEFAULT CURRENT_TIMESTAMP,
         additional_charges DECIMAL(10,2) DEFAULT 0,
         total_amount DECIMAL(10,2) NOT NULL,
-        table_number INTEGER,
         customer_name TEXT,
         status TEXT CHECK(status IN ('active', 'completed', 'cancelled')) DEFAULT 'active',
         tender_cash DECIMAL(10,2),

@@ -11,29 +11,26 @@ import {
 } from '@mui/material';
 import { Restaurant, Person } from '@mui/icons-material';
 
-const SetActiveDialog = ({ open, onClose, onSave, initialTableNumber = '', initialCustomerName = '' }) => {
-  const [tableNumber, setTableNumber] = useState('');
+const SetActiveDialog = ({ open, onClose, onSave, initialCustomerName = '' }) => {
   const [customerName, setCustomerName] = useState('');
   const [error, setError] = useState('');
 
   // When dialog opens, prefill with initial values (useful when editing a loaded active order)
   React.useEffect(() => {
     if (open) {
-      setTableNumber(String(initialTableNumber || ''));
       setCustomerName(String(initialCustomerName || ''));
       setError('');
     }
-  }, [open, initialTableNumber, initialCustomerName]);
+  }, [open, initialCustomerName]);
   const handleSave = () => {
-    // Validate: at least one field must be filled
-    if (!tableNumber.trim() && !customerName.trim()) {
-      setError('Please enter either Table Number or Customer Name');
+    // Validate: customer name must be filled
+    if (!customerName.trim()) {
+      setError('Please enter Customer Name');
       return;
     }
 
     setError('');
     onSave({
-      tableNumber: tableNumber.trim(),
       customerName: customerName.trim(),
     });
     // Leave inputs as they are (caller clears if needed)
@@ -41,7 +38,6 @@ const SetActiveDialog = ({ open, onClose, onSave, initialTableNumber = '', initi
 
   const handleClose = () => {
     setError('');
-    setTableNumber('');
     setCustomerName('');
     onClose();
   };
@@ -58,18 +54,6 @@ const SetActiveDialog = ({ open, onClose, onSave, initialTableNumber = '', initi
           )}
 
           <TextField
-            label="Table Number"
-            value={tableNumber}
-            onChange={(e) => setTableNumber(e.target.value)}
-            fullWidth
-            type="number"
-            InputProps={{
-              startAdornment: <Restaurant sx={{ mr: 1, color: 'action.active' }} />,
-            }}
-            placeholder="e.g., 5"
-          />
-
-          <TextField
             label="Customer Name"
             value={customerName}
             onChange={(e) => setCustomerName(e.target.value)}
@@ -81,7 +65,7 @@ const SetActiveDialog = ({ open, onClose, onSave, initialTableNumber = '', initi
           />
 
           <Alert severity="info" sx={{ mt: 1 }}>
-            At least one field (Table Number or Customer Name) is required
+            Customer Name is required
           </Alert>
         </Box>
       </DialogContent>

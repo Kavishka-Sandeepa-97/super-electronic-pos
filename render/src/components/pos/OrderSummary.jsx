@@ -114,7 +114,6 @@ const OrderSummary = () => {
         admin_id: user.id,
         items: mapOrderItems(currentOrder.items),
         additional_charges: currentOrder.additionalCharges,
-        table_number: currentOrder.tableNumber,
         customer_name: currentOrder.customerName,
         tender_cash: parseFloat(amountPaid) || currentOrder.total,
         discount_type: discountType,
@@ -154,7 +153,6 @@ const OrderSummary = () => {
           admin_id: user.id,
           items: mapOrderItems(currentOrder.items),
           additional_charges: currentOrder.additionalCharges,
-          table_number: currentOrder.tableNumber,
           customer_name: currentOrder.customerName,
           tender_cash: parseFloat(amountPaid),
           discount_type: discountType,
@@ -170,7 +168,6 @@ const OrderSummary = () => {
           admin_id: user.id,
           items: mapOrderItems(currentOrder.items),
           additional_charges: currentOrder.additionalCharges,
-          table_number: currentOrder.tableNumber,
           customer_name: currentOrder.customerName,
           tender_cash: parseFloat(amountPaid),
           discount_type: discountType,
@@ -214,14 +211,13 @@ const OrderSummary = () => {
     }
   };
 
-  const handleSetAsActive = async ({ tableNumber, customerName }) => {
+  const handleSetAsActive = async ({ customerName }) => {
     if (currentOrder.items.length === 0) return;
 
     const orderData = {
       admin_id: user.id,
       items: mapOrderItems(currentOrder.items),
       additional_charges: currentOrder.additionalCharges,
-      table_number: tableNumber || null,
       customer_name: customerName || null,
       discount_type: discountType,
       discount_value: parseFloat(discountValue) || 0,
@@ -336,9 +332,6 @@ const OrderSummary = () => {
                 Order #{currentOrder.id}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                {currentOrder.tableNumber ? (
-                  <Chip icon={<TableRestaurant />} label={`Table ${currentOrder.tableNumber}`} size="small" />
-                ) : null}
                 {currentOrder.customerName ? (
                   <Chip icon={<Person />} label={currentOrder.customerName} size="small" />
                 ) : null}
@@ -730,7 +723,6 @@ const OrderSummary = () => {
         open={setActiveDialogOpen}
         onClose={() => setSetActiveDialogOpen(false)}
         onSave={handleSetAsActive}
-        initialTableNumber={currentOrder.tableNumber}
         initialCustomerName={currentOrder.customerName}
       />
 

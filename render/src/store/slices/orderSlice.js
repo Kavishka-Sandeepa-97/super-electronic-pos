@@ -77,7 +77,6 @@ const orderSlice = createSlice({
       additionalCharges: 0,
       total: 0,
       customerName: '',
-      tableNumber: '',
       orderType: 'dine-in', // dine-in, takeaway
     },
     activeOrders: [],
@@ -107,7 +106,6 @@ const orderSlice = createSlice({
         additionalCharges: parseFloat(order.additional_charges || 0),
         total: parseFloat(order.total_amount || 0),
         customerName: order.customer_name || '',
-        tableNumber: order.table_number || '',
         orderType: order.order_type || 'dine-in',
         isEditing: true, // Flag to indicate this is an edit
         originalStatus: order.status, // Store original status
@@ -210,9 +208,8 @@ const orderSlice = createSlice({
         state.currentOrder.discount;
     },
     setCustomerInfo: (state, action) => {
-      const { customerName, tableNumber, orderType } = action.payload;
+      const { customerName, orderType } = action.payload;
       state.currentOrder.customerName = customerName || '';
-      state.currentOrder.tableNumber = String(tableNumber || '');
       state.currentOrder.orderType = orderType || 'dine-in';
     },
     clearCurrentOrder: (state) => {
@@ -224,7 +221,6 @@ const orderSlice = createSlice({
         additionalCharges: 0,
         total: 0,
         customerName: '',
-        tableNumber: '',
         orderType: 'dine-in',
       };
     },
@@ -247,7 +243,6 @@ const orderSlice = createSlice({
         additionalCharges: parseFloat(order.additional_charges || 0),
         total: parseFloat(order.total_amount || 0),
         customerName: order.customer_name || '',
-        tableNumber: String(order.table_number || ''),
         orderType: 'dine-in',
       };
     },
@@ -285,7 +280,6 @@ const orderSlice = createSlice({
           additionalCharges: 0,
           total: 0,
           customerName: '',
-          tableNumber: '',
           orderType: 'dine-in',
         };
       })

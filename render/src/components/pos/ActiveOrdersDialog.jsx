@@ -146,7 +146,7 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
               <TableHead>
                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                   <TableCell><strong>Order #</strong></TableCell>
-                  <TableCell><strong>Table / Customer</strong></TableCell>
+                  <TableCell><strong>Customer</strong></TableCell>
                   <TableCell><strong>Time</strong></TableCell>
                   <TableCell align="right"><strong>Total</strong></TableCell>
                   <TableCell align="center"><strong>Status</strong></TableCell>
@@ -171,14 +171,6 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
                       </TableCell>
                       <TableCell>
                         <Box>
-                          {order.table_number && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <Restaurant fontSize="small" color="action" />
-                              <Typography variant="body2">
-                                Table {order.table_number}
-                              </Typography>
-                            </Box>
-                          )}
                           {order.customer_name && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                               <Person fontSize="small" color="action" />
@@ -187,7 +179,7 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
                               </Typography>
                             </Box>
                           )}
-                          {!order.table_number && !order.customer_name && (
+                          {!order.customer_name && (
                             <Typography variant="body2" color="text.secondary">
                               N/A
                             </Typography>

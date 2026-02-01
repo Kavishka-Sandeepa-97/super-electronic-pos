@@ -127,7 +127,6 @@ router.post('/', (req, res) => {
   const { 
     admin_id, 
     additional_charges = 0, 
-    table_number, 
     customer_name, 
     tender_cash,
     discount_type,
@@ -164,10 +163,10 @@ router.post('/', (req, res) => {
     
     // Insert order
     db.run(
-      `INSERT INTO orders (admin_id, date, additional_charges, total_amount, table_number, 
+      `INSERT INTO orders (admin_id, date, additional_charges, total_amount, 
                           customer_name, tender_cash, discount_type, discount_value, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [admin_id, getCurrentUTCTimestamp(), additional_charges, total_amount, table_number, customer_name, 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [admin_id, getCurrentUTCTimestamp(), additional_charges, total_amount, customer_name, 
        tender_cash, discount_type, discount_value, status],
       function(err) {
         if (err) {
@@ -553,7 +552,6 @@ router.put('/:id', (req, res) => {
   const { 
     admin_id,
     additional_charges = 0, 
-    table_number, 
     customer_name, 
     discount_type,
     discount_value = 0,
@@ -595,10 +593,10 @@ router.put('/:id', (req, res) => {
       
       // Update order
       db.run(
-        `UPDATE orders SET additional_charges = ?, total_amount = ?, table_number = ?, 
+        `UPDATE orders SET additional_charges = ?, total_amount = ?, 
                            customer_name = ?, discount_type = ?, discount_value = ?, status = ? 
          WHERE id = ?`,
-        [additional_charges, total_amount, table_number, customer_name, 
+        [additional_charges, total_amount, customer_name, 
          discount_type, discount_value, status, id],
         function(err) {
           if (err) {
