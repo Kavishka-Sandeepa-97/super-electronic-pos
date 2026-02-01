@@ -1,17 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
-  Drawer,
-  List,
+  AppBar,
+  Toolbar,
   Typography,
-  Divider,
   IconButton,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   Avatar,
   Menu,
   MenuItem,
@@ -24,6 +19,7 @@ import {
   DialogActions,
   TextField,
   InputAdornment,
+  Divider,
 } from '@mui/material';
 import {
   PointOfSale,
@@ -37,15 +33,12 @@ import {
   PlayArrow,
   Stop,
   Refresh,
-  Restaurant,
+  Storefront,
 } from '@mui/icons-material';
 import { logout } from '../../store/slices/authSlice';
-import { setSidebarOpen, setCurrentView } from '../../store/slices/uiSlice';
+import { setCurrentView } from '../../store/slices/uiSlice';
 import { closeCashierShift, openCashierShift, fetchActiveShift } from '../../store/slices/cashierShiftSlice';
 import { setActiveShift, clearActiveShift } from '../../store/slices/authSlice';
-
-const drawerWidth = 280;
-const collapsedWidth = 70;
 
 const MainLayout = ({ children }) => {
   const dispatch = useDispatch();
@@ -53,15 +46,8 @@ const MainLayout = ({ children }) => {
   const location = useLocation();
   
   const { user, activeShift } = useSelector((state) => state.auth);
-  const { sidebarOpen, notifications } = useSelector((state) => state.ui);
   
   const [anchorEl, setAnchorEl] = useState(null);
-  // Hover collapse timeout ref
-  const hoverTimeoutRef = useRef(null);
-  // Track whether mouse is currently over the drawer
-  const isHoveringRef = useRef(false);
-  // Track whether profile menu is open to prevent collapse while open
-  const menuOpenRef = useRef(false);
 
   // Shift management state
   const [openShiftDialog, setOpenShiftDialog] = useState(false);
@@ -69,69 +55,20 @@ const MainLayout = ({ children }) => {
   const [shiftAmount, setShiftAmount] = useState('');
   const [shiftDescription, setShiftDescription] = useState('');
 
-  // Enter: cancel pending collapse and open
-  const handleMouseEnter = () => {
-    isHoveringRef.current = true;
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = null;
-    }
-    dispatch(setSidebarOpen(true));
-  };
-
-  // Leave: add a small delay before collapsing to avoid flicker
-  const handleMouseLeave = () => {
-    isHoveringRef.current = false;
-    // Don't collapse if the profile menu is open
-    if (menuOpenRef.current) return;
-
-    // 300ms delay (tweakable)
-    hoverTimeoutRef.current = setTimeout(() => {
-      dispatch(setSidebarOpen(false));
-      hoverTimeoutRef.current = null;
-    }, 300);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current);
-        hoverTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
-  const menuItems = [
-    { type: 'item', text: 'Point of Sale', icon: <PointOfSale />, path: '/pos', view: 'pos' },
-    { type: 'item', text: 'Inventory', icon: <Inventory />, path: '/inventory', view: 'inventory' },
-    { type: 'item', text: 'In/Out Management', icon: <Receipt />, path: '/inout', view: 'inout' },
-    { type: 'item', text: 'POS Reports', icon: <Analytics />, path: '/reports', view: 'reports' },
-    { type: 'divider' },
-    { type: 'item', text: 'Settings', icon: <Settings />, path: '/settings', view: 'settings' },
+  const navItems = [
+    { text: 'POS', icon: <PointOfSale />, path: '/pos', view: 'pos' },
+    { text: 'Inventory', icon: <Inventory />, path: '/inventory', view: 'inventory' },
+    { text: 'In/Out', icon: <Receipt />, path: '/inout', view: 'inout' },
+    { text: 'Reports', icon: <Analytics />, path: '/reports', view: 'reports' },
+    { text: 'Settings', icon: <Settings />, path: '/settings', view: 'settings' },
   ];
 
   const handleMenuClick = (event) => {
     setAnchorEl(event.currentTarget);
-    // mark menu as open to prevent sidebar collapsing while menu is visible
-    menuOpenRef.current = true;
-    // ensure sidebar stays open and cancel any pending collapse
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-      hoverTimeoutRef.current = null;
-    }
-    dispatch(setSidebarOpen(true));
   };
 
   const handleMenuClose = () => {
     setAnchorEl(null);
-    // mark menu as closed and collapse if mouse is not over drawer
-    menuOpenRef.current = false;
-    if (!isHoveringRef.current) {
-      hoverTimeoutRef.current = setTimeout(() => {
-        dispatch(setSidebarOpen(false));
-        hoverTimeoutRef.current = null;
-      }, 300);
-    }
   };
 
   const handleLogout = () => {
@@ -220,195 +157,157 @@ const MainLayout = ({ children }) => {
   const isActive = (path) => location.pathname === path;
 
   return (
-    <Box sx={{ display: 'flex' }}>
-      {/* Sidebar */}
-      <Drawer
-        variant="permanent"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        sx={{
-          width: sidebarOpen ? drawerWidth : collapsedWidth,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: sidebarOpen ? drawerWidth : collapsedWidth,
-            boxSizing: 'border-box',
-            transition: 'width 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-            overflowX: 'hidden',
-            background: 'linear-gradient(180deg, #2C3E50 0%, #34495E 100%)',
-            color: 'white',
-            borderRight: 'none',
-            boxShadow: '4px 0 20px rgba(0,0,0,0.1)',
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-          },
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* Top Navbar */}
+      <AppBar 
+        position="fixed" 
+        elevation={0}
+        sx={{ 
+          background: 'linear-gradient(135deg, #2C3E50 0%, #34495E 50%, #2C3E50 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
         }}
       >
-        {/* Logo + Profile */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: sidebarOpen ? 'space-between' : 'center',
-            padding: 2,
-            minHeight: 64,
-            background: 'rgba(0,0,0,0.2)',
-          }}
-        >
-          {sidebarOpen ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column',width: '100%' }}>
-              {/* First row: Name and Profile Icon */}            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography
-                  variant="body1"
+        <Toolbar sx={{ justifyContent: 'space-between', px: { xs: 1, sm: 2 } }}>
+          {/* Left Side - Logo */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Storefront sx={{ fontSize: 28, color: '#4ECDC4' }} />
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 'bold',
+                background: 'linear-gradient(45deg, #4ECDC4, #44A08D)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                display: { xs: 'none', sm: 'block' },
+              }}
+            >
+              POS
+            </Typography>
+          </Box>
+
+          {/* Center - Navigation Items */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: { xs: 0.5, sm: 1, md: 2 },
+            flex: 1,
+            justifyContent: 'center',
+          }}>
+            {navItems.map((item) => (
+              <Tooltip key={item.path} title={item.text}>
+                <Button
+                  onClick={() => handleNavigation(item.path, item.view)}
                   sx={{
-                    fontWeight: 'bold',
-                    background: 'linear-gradient(45deg, #4ECDC4, #44A08D)',
-                    backgroundClip: 'text',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
+                    color: isActive(item.path) ? '#4ECDC4' : 'rgba(255,255,255,0.8)',
+                    backgroundColor: isActive(item.path) ? 'rgba(76, 205, 196, 0.15)' : 'transparent',
+                    borderRadius: 2,
+                    px: { xs: 1, sm: 2 },
+                    py: 1,
+                    minWidth: 'auto',
+                    display: 'flex',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    alignItems: 'center',
+                    gap: { xs: 0.3, md: 1 },
+                    textTransform: 'none',
+                    fontWeight: isActive(item.path) ? 600 : 400,
+                    fontSize: { xs: '0.65rem', sm: '0.75rem', md: '0.875rem' },
+                    transition: 'all 0.2s ease',
+                    borderBottom: isActive(item.path) ? '2px solid #4ECDC4' : '2px solid transparent',
+                    '&:hover': {
+                      backgroundColor: 'rgba(76, 205, 196, 0.1)',
+                      color: '#4ECDC4',
+                    },
                   }}
                 >
-                  {user?.name || 'User'}
+                  {React.cloneElement(item.icon, { 
+                    sx: { fontSize: { xs: 20, sm: 22, md: 20 } } 
+                  })}
+                  <Typography 
+                    variant="body2" 
+                    sx={{ 
+                      display: { xs: 'block' },
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    {item.text}
+                  </Typography>
+                </Button>
+              </Tooltip>
+            ))}
+          </Box>
+
+          {/* Right Side - Cash & Profile */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 } }}>
+            {/* Cash on Hand Display */}
+            {user?.role === 'cashier' && (
+              <Box 
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(76, 205, 196, 0.15)',
+                  borderRadius: 2,
+                  px: { xs: 1, sm: 1.5 },
+                  py: 0.5,
+                  border: '1px solid rgba(76, 205, 196, 0.3)',
+                }}
+              >
+                <AccountBalanceWallet sx={{ fontSize: { xs: 16, sm: 18 }, mr: 0.5, color: '#4ECDC4' }} />
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    color: 'white', 
+                    fontWeight: 600,
+                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                  }}
+                >
+                  Rs. {activeShift ? activeShift.current_cash_onhand?.toFixed(2) : '0.00'}
                 </Typography>
-                <Tooltip title="Account settings">
-                  <IconButton onClick={handleMenuClick} sx={{ p: 0 }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: 'rgba(255,255,255,0.15)',
-                        color: 'white',
-                        border: '2px solid rgba(255,255,255,0.12)',
-                        width: 36,
-                        height: 36,
-                      }}
-                    >
-                      {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-                    </Avatar>
+                <Tooltip title="Refresh">
+                  <IconButton 
+                    onClick={handleRefreshCash} 
+                    size="small" 
+                    sx={{ 
+                      p: 0.3, 
+                      ml: 0.5,
+                      color: 'rgba(255,255,255,0.7)', 
+                      '&:hover': { color: '#4ECDC4' } 
+                    }}
+                  >
+                    <Refresh sx={{ fontSize: 14 }} />
                   </IconButton>
                 </Tooltip>
               </Box>
-              
-              {/* Second row: Cash Display for Cashiers */}
-              {user?.role === 'cashier' && (
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <AccountBalanceWallet sx={{ fontSize: 16, mr: 0.5, color: '#4ECDC4' }} />
-                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', mr: 0.5 }}>
-                    Rs. {activeShift ? activeShift.current_cash_onhand?.toFixed(2) : '0.00'}
-                  </Typography>
-                  <Tooltip title="Refresh cash on hand">
-                    <IconButton 
-                      onClick={handleRefreshCash} 
-                      size="small" 
-                      sx={{ p: 0.5, color: 'rgba(255,255,255,0.7)', '&:hover': { color: 'white' } }}
-                    >
-                      <Refresh sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              )}
-            </Box>
-          ) : (
-            <Tooltip title="Account settings">
-              <IconButton onClick={handleMenuClick} sx={{ p: 0 }}>
+            )}
+
+            {/* Profile Avatar & Menu */}
+            <Tooltip title={user?.name || 'Account'}>
+              <IconButton onClick={handleMenuClick} sx={{ p: 0.5 }}>
                 <Avatar
                   sx={{
-                    bgcolor: 'rgba(255,255,255,0.15)',
+                    bgcolor: '#4ECDC4',
                     color: 'white',
-                    border: '2px solid rgba(255,255,255,0.12)',
-                    width: 36,
-                    height: 36,
+                    width: { xs: 32, sm: 36 },
+                    height: { xs: 32, sm: 36 },
+                    fontSize: { xs: '0.875rem', sm: '1rem' },
+                    fontWeight: 600,
+                    border: '2px solid rgba(255,255,255,0.2)',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 0 12px rgba(76, 205, 196, 0.5)',
+                    },
                   }}
                 >
                   {user?.name?.charAt(0)?.toUpperCase() || 'U'}
                 </Avatar>
               </IconButton>
             </Tooltip>
-          )}
-          
-        </Box>
-
-        <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-
-        {/* Navigation Menu */}
-        <List sx={{ pt: 1, flexGrow: 1 }}>
-          {menuItems.map((item, index) => (
-            item.type === 'divider' ? (
-              <Divider key={index} sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-            ) : (
-              <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
-                <Tooltip title={!sidebarOpen ? item.text : ''} placement="right">
-                  <ListItemButton
-                    onClick={() => handleNavigation(item.path, item.view)}
-                    sx={{
-                      minHeight: 48,
-                      justifyContent: sidebarOpen ? 'initial' : 'center',
-                      px: 2.5,
-                      mx: 1,
-                      my: 0.5,
-                      borderRadius: 2,
-                      backgroundColor: isActive(item.path) ? 'rgba(76, 205, 196, 0.2)' : 'transparent',
-                      borderLeft: isActive(item.path) ? '4px solid #4ECDC4' : '4px solid transparent',
-                      '&:hover': {
-                        backgroundColor: 'rgba(76, 205, 196, 0.1)',
-                        transform: 'translateX(4px)',
-                      },
-                      transition: 'background-color 240ms, transform 240ms',
-                    }}
-                  >
-                    <ListItemIcon
-                      sx={{
-                        minWidth: 0,
-                        mr: sidebarOpen ? 3 : 0,
-                        justifyContent: 'center',
-                        color: isActive(item.path) ? '#4ECDC4' : 'rgba(255,255,255,0.7)',
-                        transition: 'margin 300ms cubic-bezier(0.4,0,0.2,1), color 300ms',
-                      }}
-                    >
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.text}
-                      sx={{
-                        opacity: sidebarOpen ? 1 : 0,
-                        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-8px)',
-                        transition: 'opacity 300ms cubic-bezier(0.4,0,0.2,1), transform 300ms cubic-bezier(0.4,0,0.2,1)',
-                        color: isActive(item.path) ? '#4ECDC4' : 'rgba(255,255,255,0.9)',
-                        '& .MuiTypography-root': {
-                          fontWeight: isActive(item.path) ? 600 : 400,
-                        },
-                        whiteSpace: 'nowrap',
-                      }}
-                    />
-                  </ListItemButton>
-                </Tooltip>
-              </ListItem>
-            )
-          ))}
-        </List>
-
-        {/* Logo at bottom */}
-        <ListItem disablePadding sx={{ display: 'block' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: sidebarOpen ? 'flex-start' : 'center', px: 2.5, mx: 1, my: 0.5 }}>
-            <Restaurant sx={{ fontSize: 32, color: '#4ECDC4' }} />
-            {sidebarOpen && (
-              <Typography
-                variant="h6"
-                sx={{
-                  ml: 1,
-                  fontWeight: 'bold',
-                  background: 'linear-gradient(45deg, #4ECDC4, #44A08D)',
-                  backgroundClip: 'text',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                }}
-              >
-                BINTHANNA
-              </Typography>
-            )}
           </Box>
-        </ListItem>
-      </Drawer>
+        </Toolbar>
+      </AppBar>
 
-      {/* Profile Menu (anchored to sidebar avatar) */}
+      {/* Profile Menu */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
@@ -419,13 +318,8 @@ const MainLayout = ({ children }) => {
             overflow: 'visible',
             filter: 'drop-shadow(0px 2px 8px rgba(0,0,0,0.32))',
             mt: 1.5,
-            minWidth: 200,
-            '& .MuiAvatar-root': {
-              width: 32,
-              height: 32,
-              ml: -0.5,
-              mr: 1,
-            },
+            minWidth: 220,
+            borderRadius: 2,
             '&:before': {
               content: '""',
               display: 'block',
@@ -443,22 +337,31 @@ const MainLayout = ({ children }) => {
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
-        <MenuItem>
-          <Avatar />
-          <Box>
-            <Typography variant="subtitle2">{user?.name || 'User'}</Typography>
-            <Chip
-              label={user?.role || 'Staff'}
-              size="small"
-              color={user?.role === 'admin' ? 'primary' : 'default'}
-              sx={{ fontSize: '0.7rem' }}
-            />
+        {/* User Info */}
+        <Box sx={{ px: 2, py: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: '#4ECDC4', width: 40, height: 40 }}>
+              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle2" fontWeight={600}>
+                {user?.name || 'User'}
+              </Typography>
+              <Chip
+                label={user?.role || 'Staff'}
+                size="small"
+                color={user?.role === 'admin' ? 'primary' : 'default'}
+                sx={{ fontSize: '0.7rem', height: 20 }}
+              />
+            </Box>
           </Box>
-        </MenuItem>
+        </Box>
+        
         <Divider />
+        
         <MenuItem onClick={() => { navigate('/settings?tab=profile'); handleMenuClose(); }}>
-          <Person fontSize="small" sx={{ mr: 1 }} />
-          Profile
+          <Person fontSize="small" sx={{ mr: 1.5, color: 'text.secondary' }} />
+          Profile Settings
         </MenuItem>
         
         {/* Cashier Shift Management */}
@@ -467,12 +370,12 @@ const MainLayout = ({ children }) => {
             <Divider />
             {activeShift ? (
               <MenuItem onClick={handleCloseShift} sx={{ color: 'warning.main' }}>
-                <Stop fontSize="small" sx={{ mr: 1 }} />
+                <Stop fontSize="small" sx={{ mr: 1.5 }} />
                 Close Shift
               </MenuItem>
             ) : (
               <MenuItem onClick={handleOpenShift} sx={{ color: 'success.main' }}>
-                <PlayArrow fontSize="small" sx={{ mr: 1 }} />
+                <PlayArrow fontSize="small" sx={{ mr: 1.5 }} />
                 Open Shift
               </MenuItem>
             )}
@@ -480,27 +383,42 @@ const MainLayout = ({ children }) => {
         )}
         
         <Divider />
-        <MenuItem onClick={() => { handleLogout(); }} sx={{ color: 'error.main' }}>
-          <Logout fontSize="small" sx={{ mr: 1 }} />
+        
+        <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>
+          <Logout fontSize="small" sx={{ mr: 1.5 }} />
           Logout
         </MenuItem>
       </Menu>
 
-      {/* Main Content (no navbar) */}
+      {/* Main Content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           bgcolor: '#f5f7fa',
           minHeight: '100vh',
+          pt: '64px', // Account for AppBar height
         }}
       >
-        <Box sx={{ p: 3 }}>{children}</Box>
+        <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
+          {children}
+        </Box>
       </Box>
 
-      {/* Shift Management Dialogs */}
-      <Dialog open={openShiftDialog} onClose={() => setOpenShiftDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Open Cashier Shift</DialogTitle>
+      {/* Open Shift Dialog */}
+      <Dialog 
+        open={openShiftDialog} 
+        onClose={() => setOpenShiftDialog(false)} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PlayArrow color="success" />
+            Open Cashier Shift
+          </Box>
+        </DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
@@ -511,8 +429,9 @@ const MainLayout = ({ children }) => {
             value={shiftAmount}
             onChange={(e) => setShiftAmount(e.target.value)}
             InputProps={{
-              startAdornment: <InputAdornment position="start"></InputAdornment>,
+              startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
             }}
+            sx={{ mt: 1 }}
           />
           <TextField
             margin="dense"
@@ -523,21 +442,48 @@ const MainLayout = ({ children }) => {
             placeholder="Starting cash for the shift"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenShiftDialog(false)}>Cancel</Button>
-          <Button onClick={handleConfirmOpenShift} variant="contained">Open Shift</Button>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenShiftDialog(false)} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmOpenShift} variant="contained" color="success">
+            Open Shift
+          </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={closeShiftDialog} onClose={() => setCloseShiftDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Close Cashier Shift</DialogTitle>
+      {/* Close Shift Dialog */}
+      <Dialog 
+        open={closeShiftDialog} 
+        onClose={() => setCloseShiftDialog(false)} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Stop color="warning" />
+            Close Cashier Shift
+          </Box>
+        </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Current cash: {activeShift?.current_cash_onhand?.toFixed(2) || '0.00'}
-          </Typography>
-          <Typography variant="body2" color="warning.main" sx={{ mb: 2, fontStyle: 'italic' }}>
-            The system will automatically use the current cash amount on hand for closing.
-          </Typography>
+          <Box 
+            sx={{ 
+              p: 2, 
+              mb: 2, 
+              mt: 1,
+              backgroundColor: 'rgba(76, 205, 196, 0.1)', 
+              borderRadius: 2,
+              border: '1px solid rgba(76, 205, 196, 0.3)',
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Current Cash on Hand
+            </Typography>
+            <Typography variant="h5" fontWeight={600} color="primary">
+              Rs. {activeShift?.current_cash_onhand?.toFixed(2) || '0.00'}
+            </Typography>
+          </Box>
           <TextField
             margin="dense"
             label="Description (Optional)"
@@ -547,9 +493,13 @@ const MainLayout = ({ children }) => {
             placeholder="Reason for closing shift or notes"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCloseShiftDialog(false)}>Cancel</Button>
-          <Button onClick={handleConfirmCloseShift} variant="contained" color="warning">Close Shift</Button>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCloseShiftDialog(false)} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmCloseShift} variant="contained" color="warning">
+            Close Shift
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
