@@ -31,9 +31,8 @@ import {
   Print,
   Person,
   TableRestaurant,
-  LocalDining,
-  LocalBar,
   Receipt,
+  ShoppingCart,
 } from '@mui/icons-material';
 import {
   updateItemQuantity,
@@ -98,10 +97,6 @@ const OrderSummary = () => {
       dispatch(updateItemQuantity({ itemVariantId, quantity: newQuantity }));
     }
   };
-
-  // Customer info handling removed
-
-  // Removed handlePrintKOTBOT function as we now have separate buttons for KOT and BOT
 
   const handleUpdateOrder = async () => {
     if (currentOrder.items.length === 0) {
@@ -354,7 +349,7 @@ const OrderSummary = () => {
                   color: 'text.secondary',
                 }}
               >
-                <LocalDining sx={{ fontSize: 60, mb: 2, opacity: 0.5 }} />
+                <ShoppingCart sx={{ fontSize: 60, mb: 2, opacity: 0.5 }} />
                 <Typography variant="body1">No items in order</Typography>
               </Box>
             ) : (
@@ -377,15 +372,6 @@ const OrderSummary = () => {
                           <Typography variant="subtitle2" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
                             {item.itemName} {item.variantName && <span style={{ fontWeight: 'normal', color: '#666' }}>({item.variantName})</span>}
                           </Typography>
-                          {item.category && item.category.toLowerCase() === 'hot meals' && (
-                            <Chip icon={<LocalDining />} label="KOT" size="small" color="warning" sx={{ height: '20px', fontSize: '0.7rem' }} />
-                          )}
-                          {item.category && item.category.toLowerCase() === 'liquor' && (
-                            <Chip icon={<LocalBar />} label="BOT" size="small" color="info" sx={{ height: '20px', fontSize: '0.7rem' }} />
-                          )}
-                          {item.category && item.category.toLowerCase() === 'beverages' && (
-                            <Chip icon={<LocalBar />} label="BOT" size="small" color="info" sx={{ height: '20px', fontSize: '0.7rem' }} />
-                          )}
                         </Box>
                       }
                       secondary={
@@ -652,8 +638,6 @@ const OrderSummary = () => {
                   </>
                 ) : (
                   <>
-                    {/* Old Print KOT/BOT button removed */}
-                    
                     <Button
                       fullWidth
                       variant="contained"

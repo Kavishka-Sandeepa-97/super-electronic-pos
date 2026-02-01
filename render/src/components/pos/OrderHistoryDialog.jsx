@@ -34,8 +34,6 @@ import {
   Restaurant,
   Person,
   Print,
-  LocalDining,
-  LocalBar,
   Receipt,
   Edit,
   Visibility,
@@ -191,56 +189,6 @@ const OrderHistoryDialog = ({ open, onClose }) => {
       toast.error('Failed to update order: ' + error.message);
     } finally {
       setSavingOrder(false);
-    }
-  };
-
-  const handlePrintKOT = async () => {
-    if (!selectedOrder) return;
-
-    try {
-      const orderData = {
-        ...selectedOrder,
-        items: selectedOrder.items || [],
-        cashier: 'System'
-      };
-
-      const kotResult = await htmlPrintService.printKOTHTML(orderData, {
-        name: 'BINTHANNA RESTAURANT',
-        receiptFooter: 'Please prepare hot meal items.'
-      });
-
-      if (kotResult.success) {
-        toast.success('KOT printed successfully');
-      } else {
-        toast.error(kotResult.message || 'KOT printing failed');
-      }
-    } catch (error) {
-      toast.error(`Failed to print KOT: ${error.message}`);
-    }
-  };
-
-  const handlePrintBOT = async () => {
-    if (!selectedOrder) return;
-
-    try {
-      const orderData = {
-        ...selectedOrder,
-        items: selectedOrder.items || [],
-        cashier: 'System'
-      };
-
-      const botResult = await htmlPrintService.printBOTHTML(orderData, {
-        name: 'BINTHANNA RESTAURANT',
-        receiptFooter: 'Please prepare drinks.'
-      });
-
-      if (botResult.success) {
-        toast.success('BOT printed successfully');
-      } else {
-        toast.error(botResult.message || 'BOT printing failed');
-      }
-    } catch (error) {
-      toast.error(`Failed to print BOT: ${error.message}`);
     }
   };
 
@@ -517,22 +465,6 @@ const OrderHistoryDialog = ({ open, onClose }) => {
             <Box sx={{ display: 'flex', gap: 1 }}>
               {!editMode && (
                 <>
-                  <Button
-                    variant="outlined"
-                    startIcon={<LocalDining />}
-                    onClick={handlePrintKOT}
-                    size="small"
-                  >
-                    Print KOT
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<LocalBar />}
-                    onClick={handlePrintBOT}
-                    size="small"
-                  >
-                    Print BOT
-                  </Button>
                   <Button
                     variant="contained"
                     startIcon={<Receipt />}

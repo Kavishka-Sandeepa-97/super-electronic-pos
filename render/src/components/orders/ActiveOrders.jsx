@@ -25,8 +25,6 @@ import {
   Refresh as RefreshIcon,
   Edit as EditIcon,
   Receipt as ReceiptIcon,
-  Kitchen as KitchenIcon,
-  LocalBar as BarIcon,
   Add as AddIcon,
   Remove as RemoveIcon,
   TableRestaurant as TableIcon,
@@ -103,25 +101,6 @@ const ActiveOrders = () => {
     }
   };
 
-  const getOrderTypeIcon = (items) => {
-    const hasHotMeal = items.some(item => item.category === 'hot meals');
-    const hasLiquor = items.some(item => item.category === 'liquor');
-
-    if (hasHotMeal && hasLiquor) {
-      return (
-        <Box display="flex" gap={0.5}>
-          <KitchenIcon color="primary" fontSize="small" />
-          <BarIcon color="secondary" fontSize="small" />
-        </Box>
-      );
-    } else if (hasHotMeal) {
-      return <KitchenIcon color="primary" fontSize="small" />;
-    } else if (hasLiquor) {
-      return <BarIcon color="secondary" fontSize="small" />;
-    }
-    return null;
-  };
-
   const calculateTotal = (items) => {
     return items.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
@@ -160,7 +139,6 @@ const ActiveOrders = () => {
                       Order #{order.id}
                     </Typography>
                   </Box>
-                  {getOrderTypeIcon(order.items)}
                 </Box>
 
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>

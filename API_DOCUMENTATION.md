@@ -114,9 +114,9 @@ The system implements the following entities:
 
 ## Default Data
 - Default admin user: PIN `1234`
-- Default categories: Liquor, Beverages, Hot Meals, Desserts, Snacks, Tobacco, Other
+- Default categories: Electronics, Clothing, Accessories, Desserts, Snacks, Tobacco, Other
 
-## Next Steps for Cosmetic Shop Customization
+## Next Steps for Custom Shop Customization
 1. Update default categories (Makeup, Skincare, Hair Care, Fragrances, etc.)
 2. Add brand management features
 3. Implement batch/expiry date tracking

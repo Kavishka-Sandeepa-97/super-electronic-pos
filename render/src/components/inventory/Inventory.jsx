@@ -74,9 +74,6 @@ import SellPriceHistory from '../SellPriceHistory';
 
 const getCategoryIcon = (categoryName) => {
   const iconMap = {
-    'Liquor': '🍷',
-    'Beverages': '🥤',
-    'Hot Meals': '🍽️',
     'Desserts': '🍰',
     'Snacks': '🍿',
     'Tobacco': '🚬',

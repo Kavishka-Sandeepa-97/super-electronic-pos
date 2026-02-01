@@ -31,9 +31,6 @@ import {
   Search,
   Add,
   ShoppingCart,
-  LocalDining,
-  LocalBar,
-  Coffee,
   Cake,
   Fastfood,
   SmokeFree,
@@ -52,9 +49,6 @@ import OrderHistoryDialog from './OrderHistoryDialog';
 import { toast } from 'react-toastify';
 
 const categoryIcons = {
-  'liquor': <LocalBar />,
-  'beverages': <Coffee />,
-  'hot meals': <LocalDining />,
   'desserts': <Cake />,
   'snacks': <Fastfood />,
   'tobacco': <SmokeFree />,
@@ -69,9 +63,6 @@ const getCategoryIcon = (categoryName) => {
 };
 
 const categoryColors = {
-  'liquor': '#FF6B6B',
-  'beverages': '#4ECDC4',
-  'hot meals': '#45B7D1',
   'desserts': '#F7DC6F',
   'snacks': '#BB8FCE',
   'tobacco': '#85929E',

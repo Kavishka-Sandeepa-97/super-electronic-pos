@@ -218,7 +218,7 @@ const insertDefaultData = () => {
   });
 
   // Insert default categories in batch
-  const defaultCategories = ['Liquor', 'Beverages', 'Hot Meals', 'Desserts', 'Snacks', 'Tobacco', 'Other'];
+  const defaultCategories = ['Electronics', 'Clothing', 'Accessories', 'Desserts', 'Snacks', 'Tobacco', 'Other'];
   db.serialize(() => {
     defaultCategories.forEach(categoryName => {
       db.run('INSERT OR IGNORE INTO category (name) VALUES (?)', [categoryName]);

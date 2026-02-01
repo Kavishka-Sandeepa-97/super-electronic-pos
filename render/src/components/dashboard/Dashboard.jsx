@@ -20,9 +20,6 @@ import {
   Receipt,
   Inventory,
   People,
-  Restaurant,
-  LocalBar,
-  LocalDining,
   Cake,
   Fastfood,
   SmokeFree,
@@ -47,9 +44,6 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   const categoryIcons = {
-    'Liquor': <LocalBar />,
-    'Beverages': <LocalBar />,
-    'Hot Meals': <LocalDining />,
     'Desserts': <Cake />,
     'Snacks': <Fastfood />,
     'Tobacco': <SmokeFree />,
@@ -86,11 +80,10 @@ const Dashboard = () => {
           { time: '20:00', sales: 3900 },
         ],
         categoryBreakdown: [
-          { name: 'Hot Meals', value: 45, amount: 6939 },
-          { name: 'Beverages', value: 25, amount: 3855 },
-          { name: 'Liquor', value: 15, amount: 2313 },
-          { name: 'Desserts', value: 10, amount: 1542 },
-          { name: 'Snacks', value: 5, amount: 771 },
+          { name: 'Electronics', value: 40, amount: 6939 },
+          { name: 'Clothing', value: 30, amount: 3855 },
+          { name: 'Accessories', value: 20, amount: 2313 },
+          { name: 'Other', value: 10, amount: 1542 },
         ],
         recentOrders: [
           { id: 1, table: 'T-05', amount: 2450, status: 'completed', time: '2 min ago' },
@@ -100,10 +93,10 @@ const Dashboard = () => {
           { id: 5, table: 'T-15', amount: 2100, status: 'completed', time: '15 min ago' },
         ],
         topItems: [
-          { name: 'Chicken Rice', category: 'Hot Meals', sold: 23, revenue: 3450 },
-          { name: 'Iced Coffee', category: 'Beverages', sold: 31, revenue: 1240 },
-          { name: 'Beer', category: 'Liquor', sold: 18, revenue: 1800 },
-          { name: 'Chocolate Cake', category: 'Desserts', sold: 12, revenue: 960 },
+          { name: 'Product A', category: 'Electronics', sold: 23, revenue: 3450 },
+          { name: 'Product B', category: 'Clothing', sold: 31, revenue: 1240 },
+          { name: 'Product C', category: 'Accessories', sold: 18, revenue: 1800 },
+          { name: 'Product D', category: 'Other', sold: 12, revenue: 960 },
         ],
       };
 

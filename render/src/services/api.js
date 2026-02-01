@@ -311,18 +311,6 @@ export const ordersAPI = {
   },
 
   // Generate receipts
-  generateKOT: async (orderId) => {
-    return makeRequest(`/orders/${orderId}/kot`, {
-      method: 'POST',
-    });
-  },
-
-  generateBOT: async (orderId) => {
-    return makeRequest(`/orders/${orderId}/bot`, {
-      method: 'POST',
-    });
-  },
-
   generateBill: async (orderId) => {
     return makeRequest(`/orders/${orderId}/bill`, {
       method: 'POST',
