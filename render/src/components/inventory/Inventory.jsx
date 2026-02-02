@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import imageCompression from 'browser-image-compression';
 import {
   Box,
   Card,
@@ -141,7 +142,7 @@ const ItemManagement = React.memo(({
     setFormFieldTouched({ name: false, category: false });
   };
 
-  const handleImageUploadInline = (event) => {
+  const handleImageUploadInline = async (event) => {
     const file = event.target.files[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
@@ -152,15 +153,36 @@ const ItemManagement = React.memo(({
         toast.error('Image size should be less than 5MB');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setItemFormData(prev => ({
-          ...prev,
-          image: file,
-          imagePreview: e.target.result
-        }));
-      };
-      reader.readAsDataURL(file);
+
+      try {
+        // Compress image for better performance
+        const options = {
+          maxSizeMB: 1,              // Max 1MB
+          maxWidthOrHeight: 1920,    // Max resolution
+          quality: 0.85,             // 85% quality (excellent for product images)
+          useWebWorker: true         // Non-blocking
+        };
+        
+        const compressedFile = await imageCompression(file, options);
+        
+        // Show compression info
+        const originalSizeMB = (file.size / 1024 / 1024).toFixed(2);
+        const compressedSizeMB = (compressedFile.size / 1024 / 1024).toFixed(2);
+        console.log(`Image compressed: ${originalSizeMB}MB → ${compressedSizeMB}MB`);
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setItemFormData(prev => ({
+            ...prev,
+            image: compressedFile,
+            imagePreview: e.target.result
+          }));
+        };
+        reader.readAsDataURL(compressedFile);
+      } catch (error) {
+        console.error('Error compressing image:', error);
+        toast.error('Failed to compress image');
+      }
     }
   };
 
@@ -775,7 +797,7 @@ const Inventory = () => {
   };
 
   // Image handling functions
-  const handleImageUpload = (event) => {
+  const handleImageUpload = async (event) => {
     const file = event.target.files[0];
     if (file) {
       // Validate file type
@@ -790,16 +812,36 @@ const Inventory = () => {
         return;
       }
 
-      // Create preview
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setNewItem(prev => ({
-          ...prev,
-          image: file,
-          imagePreview: e.target.result
-        }));
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Compress image for better performance
+        const options = {
+          maxSizeMB: 1,              // Max 1MB
+          maxWidthOrHeight: 1920,    // Max resolution
+          quality: 0.85,             // 85% quality
+          useWebWorker: true
+        };
+        
+        const compressedFile = await imageCompression(file, options);
+        
+        // Show compression info
+        const originalSizeMB = (file.size / 1024 / 1024).toFixed(2);
+        const compressedSizeMB = (compressedFile.size / 1024 / 1024).toFixed(2);
+        console.log(`Image compressed: ${originalSizeMB}MB → ${compressedSizeMB}MB`);
+
+        // Create preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setNewItem(prev => ({
+            ...prev,
+            image: compressedFile,
+            imagePreview: e.target.result
+          }));
+        };
+        reader.readAsDataURL(compressedFile);
+      } catch (error) {
+        console.error('Error compressing image:', error);
+        toast.error('Failed to compress image');
+      }
     }
   };
 
