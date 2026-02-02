@@ -65,12 +65,24 @@ const createTables = () => {
     )
   `);
 
+  // Brand table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS brand (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      brand_name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Category table
   db.exec(`
     CREATE TABLE IF NOT EXISTS category (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      parent_id INTEGER NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (parent_id) REFERENCES category(id)
     )
   `);
 
@@ -79,10 +91,13 @@ const createTables = () => {
     CREATE TABLE IF NOT EXISTS item (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category_id INTEGER NOT NULL,
+      brand_id INTEGER,
       name TEXT NOT NULL,
+      gender TEXT CHECK(gender IN ('MEN', 'WOMEN', 'UNISEX')),
       image TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (category_id) REFERENCES category(id)
+      FOREIGN KEY (category_id) REFERENCES category(id),
+      FOREIGN KEY (brand_id) REFERENCES brand(id)
     )
   `);
 
@@ -203,7 +218,9 @@ const createTables = () => {
 // Create indexes for performance optimization
 const createIndexes = () => {
   const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_category_parent ON category(parent_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_category ON item(category_id)',
+    'CREATE INDEX IF NOT EXISTS idx_item_brand ON item(brand_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_name ON item(name)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_item ON item_variant(item_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_variant ON item_variant(variant_id)',
