@@ -81,7 +81,7 @@ server.use('/api/cashier-shifts', cashierShiftRoutes);
 server.use('/api/reports', reportsRoutes);
 
 // New route for creating item with variant and image
-server.post('/api/item-variants/create-full', upload.single('image'), async (req, res) => {
+server.post('/api/item-variants/create-full', upload.single('image'), (req, res) => {
   const db = getDatabase();
   const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description } = req.body;
   const imagePath = req.file ? req.file.path : null;
@@ -90,108 +90,71 @@ server.post('/api/item-variants/create-full', upload.single('image'), async (req
     return res.status(400).json({ error: 'Missing required fields: name, category, variant, sellingPrice, initialQuantity' });
   }
 
-  db.serialize(async () => {
-    db.run('BEGIN TRANSACTION');
-    try {
-      // 1. Get category_id
-      const categoryRow = await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM category WHERE name = ?', [category], (err, row) => {
-          if (err) reject(err); else resolve(row);
-        });
-      });
-
-      if (!categoryRow) {
-        throw new Error('Category not found');
-      }
-      const category_id = categoryRow.id;
-
-      // 2. Insert into item table
-      const item_id = await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)',
-          [category_id, name, imagePath, getCurrentUTCTimestamp()],
-          function (err) {
-            if (err) reject(err); else resolve(this.lastID);
-          }
-        );
-      });
-
-      // 3. Get or create variant_id
-      let variant_id;
-      const variantRow = await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM variant WHERE variant_name = ?', [variant], (err, row) => {
-          if (err) reject(err); else resolve(row);
-        });
-      });
-
-      if (variantRow) {
-        variant_id = variantRow.id;
-      } else {
-        variant_id = await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)',
-            [variant, getCurrentUTCTimestamp()],
-            function (err) {
-              if (err) reject(err); else resolve(this.lastID);
-            }
-          );
-        });
-      }
-
-      // 4. Insert into item_variant table
-      const item_variant_id = await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)',
-          [variant_id, item_id, barcode, getCurrentUTCTimestamp()],
-          function (err) {
-            if (err) {
-              if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
-                reject(new Error('Barcode already exists. Please use a different barcode.'));
-              } else {
-                reject(err);
-              }
-            } else {
-              resolve(this.lastID);
-            }
-          }
-        );
-      });
-
-      // 5. Insert into stock_batch with description
-      const stock_batch_id = await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [item_variant_id, parseInt(initialQuantity), parseInt(initialQuantity), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp()],
-          function (err) {
-            if (err) reject(err); else resolve(this.lastID);
-          }
-        );
-      });
-
-      // 6. Insert into sell_price_history with stock_batch_id reference
-      await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-          [item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp()], // Using admin staff_id = 1 as default
-          function (err) {
-            if (err) reject(err); else resolve();
-          }
-        );
-      });
-
-      db.run('COMMIT');
-      res.status(201).json({ message: 'Item, variant, and stock created successfully', item_variant_id });
-
-    } catch (error) {
-      db.run('ROLLBACK');
-      console.error('Transaction failed:', error.message);
-      res.status(500).json({ error: error.message });
+  const transaction = db.transaction(() => {
+    // 1. Get category_id
+    const categoryRow = db.prepare('SELECT id FROM category WHERE name = ?').get(category);
+    if (!categoryRow) {
+      throw new Error('Category not found');
     }
+    const category_id = categoryRow.id;
+
+    // 2. Insert into item table
+    const itemResult = db.prepare(
+      'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)'
+    ).run(category_id, name, imagePath, getCurrentUTCTimestamp());
+    const item_id = itemResult.lastInsertRowid;
+
+    // 3. Get or create variant_id
+    let variant_id;
+    const variantRow = db.prepare('SELECT id FROM variant WHERE variant_name = ?').get(variant);
+    if (variantRow) {
+      variant_id = variantRow.id;
+    } else {
+      const variantResult = db.prepare(
+        'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)'
+      ).run(variant, getCurrentUTCTimestamp());
+      variant_id = variantResult.lastInsertRowid;
+    }
+
+    // 4. Insert into item_variant table
+    let item_variant_id;
+    try {
+      const ivResult = db.prepare(
+        'INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)'
+      ).run(variant_id, item_id, barcode, getCurrentUTCTimestamp());
+      item_variant_id = ivResult.lastInsertRowid;
+    } catch (err) {
+      if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
+        throw new Error('Barcode already exists. Please use a different barcode.');
+      }
+      throw err;
+    }
+
+    // 5. Insert into stock_batch with description
+    const stockResult = db.prepare(
+      'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(item_variant_id, parseInt(initialQuantity), parseInt(initialQuantity), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
+    const stock_batch_id = stockResult.lastInsertRowid;
+
+    // 6. Insert into sell_price_history with stock_batch_id reference
+    db.prepare(
+      'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp());
+
+    return item_variant_id;
   });
+
+  try {
+    const item_variant_id = transaction();
+    res.status(201).json({ message: 'Item, variant, and stock created successfully', item_variant_id });
+  } catch (error) {
+    console.error('Transaction failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // New route for creating item with multiple variants
-server.post('/api/items/create-with-variants', upload.single('image'), async (req, res) => {
+server.post('/api/items/create-with-variants', upload.single('image'), (req, res) => {
   const db = getDatabase();
   const { name, category } = req.body;
   const variants = JSON.parse(req.body.variants || '[]');
@@ -201,131 +164,94 @@ server.post('/api/items/create-with-variants', upload.single('image'), async (re
     return res.status(400).json({ error: 'Missing required fields: name, category, variants array' });
   }
 
-  db.serialize(async () => {
-    db.run('BEGIN TRANSACTION');
-    try {
-      // 1. Get category_id
-      const categoryRow = await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM category WHERE name = ?', [category], (err, row) => {
-          if (err) reject(err); else resolve(row);
-        });
-      });
-
-      if (!categoryRow) {
-        throw new Error('Category not found');
-      }
-      const category_id = categoryRow.id;
-
-      // 2. Insert into item table
-      const item_id = await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)',
-          [category_id, name, imagePath, getCurrentUTCTimestamp()],
-          function (err) {
-            if (err) reject(err); else resolve(this.lastID);
-          }
-        );
-      });
-
-      const createdVariants = [];
-
-      // 3. Process each variant
-      for (const variantData of variants) {
-        const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description } = variantData;
-
-        if (!variantName || !sellingPrice) {
-          throw new Error(`Variant ${variantName || 'unnamed'} is missing required fields`);
-        }
-
-        // Get or create variant_id
-        let variant_id;
-        const variantRow = await new Promise((resolve, reject) => {
-          db.get('SELECT id FROM variant WHERE variant_name = ?', [variantName], (err, row) => {
-            if (err) reject(err); else resolve(row);
-          });
-        });
-
-        if (variantRow) {
-          variant_id = variantRow.id;
-        } else {
-          variant_id = await new Promise((resolve, reject) => {
-            db.run(
-              'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)',
-              [variantName, getCurrentUTCTimestamp()],
-              function (err) {
-                if (err) reject(err); else resolve(this.lastID);
-              }
-            );
-          });
-        }
-
-        // Insert into item_variant table
-        const item_variant_id = await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)',
-            [variant_id, item_id, barcode, getCurrentUTCTimestamp()],
-            function (err) {
-              if (err) {
-                if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
-                  reject(new Error(`Barcode ${barcode} already exists`));
-                } else {
-                  reject(err);
-                }
-              } else {
-                resolve(this.lastID);
-              }
-            }
-          );
-        });
-
-        // Insert into stock_batch
-        const stock_batch_id = await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            [item_variant_id, parseInt(initialQuantity || 0), parseInt(initialQuantity || 0), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp()],
-            function (err) {
-              if (err) reject(err); else resolve(this.lastID);
-            }
-          );
-        });
-
-        // Insert into sell_price_history
-        await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-            [item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp()],
-            function (err) {
-              if (err) reject(err); else resolve();
-            }
-          );
-        });
-
-        createdVariants.push({
-          item_variant_id,
-          variantName,
-          barcode,
-          sellingPrice: parseFloat(sellingPrice),
-          initialQuantity: parseInt(initialQuantity || 0)
-        });
-      }
-
-      db.run('COMMIT');
-      res.status(201).json({
-        message: 'Item with variants created successfully',
-        item_id,
-        created_variants: createdVariants
-      });
-
-    } catch (error) {
-      db.run('ROLLBACK');
-      console.error('Transaction failed:', error.message);
-      res.status(500).json({ error: error.message });
+  const transaction = db.transaction(() => {
+    // 1. Get category_id
+    const categoryRow = db.prepare('SELECT id FROM category WHERE name = ?').get(category);
+    if (!categoryRow) {
+      throw new Error('Category not found');
     }
+    const category_id = categoryRow.id;
+
+    // 2. Insert into item table
+    const itemResult = db.prepare(
+      'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)'
+    ).run(category_id, name, imagePath, getCurrentUTCTimestamp());
+    const item_id = itemResult.lastInsertRowid;
+
+    const createdVariants = [];
+
+    // 3. Process each variant
+    for (const variantData of variants) {
+      const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description } = variantData;
+
+      if (!variantName || !sellingPrice) {
+        throw new Error(`Variant ${variantName || 'unnamed'} is missing required fields`);
+      }
+
+      // Get or create variant_id
+      let variant_id;
+      const variantRow = db.prepare('SELECT id FROM variant WHERE variant_name = ?').get(variantName);
+      if (variantRow) {
+        variant_id = variantRow.id;
+      } else {
+        const variantResult = db.prepare(
+          'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)'
+        ).run(variantName, getCurrentUTCTimestamp());
+        variant_id = variantResult.lastInsertRowid;
+      }
+
+      // Insert into item_variant table
+      let item_variant_id;
+      try {
+        const ivResult = db.prepare(
+          'INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)'
+        ).run(variant_id, item_id, barcode, getCurrentUTCTimestamp());
+        item_variant_id = ivResult.lastInsertRowid;
+      } catch (err) {
+        if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
+          throw new Error(`Barcode ${barcode} already exists`);
+        }
+        throw err;
+      }
+
+      // Insert into stock_batch
+      const stockResult = db.prepare(
+        'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(item_variant_id, parseInt(initialQuantity || 0), parseInt(initialQuantity || 0), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
+      const stock_batch_id = stockResult.lastInsertRowid;
+
+      // Insert into sell_price_history
+      db.prepare(
+        'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp());
+
+      createdVariants.push({
+        item_variant_id,
+        variantName,
+        barcode,
+        sellingPrice: parseFloat(sellingPrice),
+        initialQuantity: parseInt(initialQuantity || 0)
+      });
+    }
+
+    return { item_id, createdVariants };
   });
+
+  try {
+    const result = transaction();
+    res.status(201).json({
+      message: 'Item with variants created successfully',
+      item_id: result.item_id,
+      created_variants: result.createdVariants
+    });
+  } catch (error) {
+    console.error('Transaction failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Add stock batch to existing item variant
-server.post('/api/stock-batch/add', async (req, res) => {
+server.post('/api/stock-batch/add', (req, res) => {
   const db = getDatabase();
   const { item_variant_id, buyingPrice, quantity, description } = req.body;
 
@@ -333,37 +259,29 @@ server.post('/api/stock-batch/add', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields: item_variant_id, quantity, buyingPrice' });
   }
 
-  db.serialize(async () => {
-    db.run('BEGIN TRANSACTION');
-    try {
-      // Create new stock batch
-      const stock_batch_id = await new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO stock_batch (item_variant_id, buy_price, initial_qty, remaining_qty, description, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [item_variant_id, parseFloat(buyingPrice), parseInt(quantity), parseInt(quantity), description || null, getCurrentUTCTimestamp()],
-          function (err) {
-            if (err) reject(err); else resolve(this.lastID);
-          }
-        );
-      });
-
-      db.run('COMMIT');
-      res.status(201).json({
-        message: 'Stock batch added successfully',
-        stock_batch_id
-      });
-
-    } catch (error) {
-      db.run('ROLLBACK');
-      console.error('Transaction failed:', error.message);
-      res.status(500).json({ error: error.message });
-    }
+  const transaction = db.transaction(() => {
+    // Create new stock batch
+    const result = db.prepare(
+      'INSERT INTO stock_batch (item_variant_id, buy_price, initial_qty, remaining_qty, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(item_variant_id, parseFloat(buyingPrice), parseInt(quantity), parseInt(quantity), description || null, getCurrentUTCTimestamp());
+    return result.lastInsertRowid;
   });
+
+  try {
+    const stock_batch_id = transaction();
+    res.status(201).json({
+      message: 'Stock batch added successfully',
+      stock_batch_id
+    });
+  } catch (error) {
+    console.error('Transaction failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 
 // Update item variant with full data (item, variant, price, etc.)
-server.put('/api/item-variants/:id/update-full', upload.single('image'), async (req, res) => {
+server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
   const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description } = req.body;
@@ -373,185 +291,114 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), async (
     return res.status(400).json({ error: 'Missing required fields: name, category, variant, sellingPrice' });
   }
 
-  db.serialize(async () => {
-    db.run('BEGIN TRANSACTION');
+  const transaction = db.transaction(() => {
+    // 1. Get current item variant data
+    const currentData = db.prepare(`
+      SELECT iv.*, i.id as item_id, i.name as item_name, i.category_id, v.variant_name
+      FROM item_variant iv
+      JOIN item i ON iv.item_id = i.id
+      JOIN variant v ON iv.variant_id = v.id
+      WHERE iv.id = ?
+    `).get(id);
+
+    if (!currentData) {
+      throw new Error('Item variant not found');
+    }
+
+    // 2. Get category_id
+    const categoryRow = db.prepare('SELECT id FROM category WHERE name = ?').get(category);
+    if (!categoryRow) {
+      throw new Error('Category not found');
+    }
+    const category_id = categoryRow.id;
+
+    // 3. Update item table
+    if (imagePath) {
+      db.prepare('UPDATE item SET name = ?, category_id = ?, image = ? WHERE id = ?')
+        .run(name, category_id, imagePath, currentData.item_id);
+    } else {
+      db.prepare('UPDATE item SET name = ?, category_id = ? WHERE id = ?')
+        .run(name, category_id, currentData.item_id);
+    }
+
+    // 4. Get or create variant_id
+    let variant_id;
+    const variantRow = db.prepare('SELECT id FROM variant WHERE variant_name = ?').get(variant);
+    if (variantRow) {
+      variant_id = variantRow.id;
+    } else {
+      const variantResult = db.prepare(
+        'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)'
+      ).run(variant, getCurrentUTCTimestamp());
+      variant_id = variantResult.lastInsertRowid;
+    }
+
+    // 5. Update item_variant table
+    const normalizedBarcode = (typeof barcode === 'string' && barcode.trim() === '') || barcode === undefined ? null : barcode;
     try {
-      // 1. Get current item variant data
-      const currentData = await new Promise((resolve, reject) => {
-        db.get(
-          `SELECT iv.*, i.id as item_id, i.name as item_name, i.category_id, v.variant_name
-           FROM item_variant iv
-           JOIN item i ON iv.item_id = i.id
-           JOIN variant v ON iv.variant_id = v.id
-           WHERE iv.id = ?`,
-          [id],
-          (err, row) => {
-            if (err) reject(err); else resolve(row);
-          }
-        );
-      });
-
-      if (!currentData) {
-        throw new Error('Item variant not found');
+      db.prepare('UPDATE item_variant SET variant_id = ?, barcode = ? WHERE id = ?')
+        .run(variant_id, normalizedBarcode, id);
+    } catch (err) {
+      if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
+        throw new Error('Barcode already exists. Please use a different barcode.');
       }
+      throw err;
+    }
 
-      // 2. Get category_id
-      const categoryRow = await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM category WHERE name = ?', [category], (err, row) => {
-          if (err) reject(err); else resolve(row);
-        });
-      });
+    // 6. Get current selling price
+    const currentPriceRow = db.prepare(
+      'SELECT selling_price FROM sell_price_history WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(id);
+    const currentPrice = currentPriceRow ? currentPriceRow.selling_price : null;
 
-      if (!categoryRow) {
-        throw new Error('Category not found');
-      }
-      const category_id = categoryRow.id;
+    let latest_stock_batch_id = null;
 
-      // 3. Update item table
-      const updateFields = ['name = ?', 'category_id = ?'];
-      const updateValues = [name, category_id];
+    // 7. Update stock if initialQuantity is provided and different
+    if (initialQuantity && buyingPrice !== undefined) {
+      const existingStock = db.prepare(
+        'SELECT SUM(remaining_qty) as total FROM stock_batch WHERE item_variant_id = ?'
+      ).get(id);
+      
+      const newQuantity = parseInt(initialQuantity);
+      const currentTotal = existingStock?.total || 0;
 
-      if (imagePath) {
-        updateFields.push('image = ?');
-        updateValues.push(imagePath);
-      }
-
-      updateValues.push(currentData.item_id);
-
-      await new Promise((resolve, reject) => {
-        db.run(
-          `UPDATE item SET ${updateFields.join(', ')} WHERE id = ?`,
-          updateValues,
-          function (err) {
-            if (err) reject(err); else resolve();
-          }
-        );
-      });
-
-      // 4. Get or create variant_id
-      let variant_id;
-      const variantRow = await new Promise((resolve, reject) => {
-        db.get('SELECT id FROM variant WHERE variant_name = ?', [variant], (err, row) => {
-          if (err) reject(err); else resolve(row);
-        });
-      });
-
-      if (variantRow) {
-        variant_id = variantRow.id;
-      } else {
-        variant_id = await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)',
-            [variant, getCurrentUTCTimestamp()],
-            function (err) {
-              if (err) reject(err); else resolve(this.lastID);
-            }
-          );
-        });
-      }
-
-      // 5. Update item_variant table
-      // Normalize barcode: treat empty string or undefined as NULL so UNIQUE constraint isn't triggered by duplicate empty strings
-      const normalizedBarcode = (typeof barcode === 'string' && barcode.trim() === '') || barcode === undefined ? null : barcode;
-
-      await new Promise((resolve, reject) => {
-        db.run(
-          'UPDATE item_variant SET variant_id = ?, barcode = ? WHERE id = ?',
-          [variant_id, normalizedBarcode, id],
-          function (err) {
-            if (err) {
-              if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
-                reject(new Error('Barcode already exists. Please use a different barcode.'));
-              } else {
-                reject(err);
-              }
-            } else {
-              resolve();
-            }
-          }
-        );
-      });
-
-      // 6. Update selling price (create new history entry if price changed)
-      const currentPrice = await new Promise((resolve, reject) => {
-        db.get(
-          'SELECT selling_price FROM sell_price_history WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1',
-          [id],
-          (err, row) => {
-            if (err) reject(err); else resolve(row ? row.selling_price : null);
-          }
-        );
-      });
-
-      let latest_stock_batch_id = null;
-
-      // 7. Update stock if initialQuantity is provided and different
-      if (initialQuantity && buyingPrice !== undefined) {
-        // Check if there's existing stock
-        const existingStock = await new Promise((resolve, reject) => {
-          db.get(
-            'SELECT SUM(remaining_qty) as total FROM stock_batch WHERE item_variant_id = ?',
-            [id],
-            (err, row) => {
-              if (err) reject(err); else resolve(row ? row.total : 0);
-            }
-          );
-        });
-
-        const newQuantity = parseInt(initialQuantity);
-        const currentTotal = existingStock || 0;
-
-        if (newQuantity !== currentTotal) {
-          // Add new stock batch for the difference
-          const difference = newQuantity - currentTotal;
-          if (difference > 0) {
-            latest_stock_batch_id = await new Promise((resolve, reject) => {
-              db.run(
-                'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                [id, difference, difference, parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp()],
-                function (err) {
-                  if (err) reject(err); else resolve(this.lastID);
-                }
-              );
-            });
-          }
-        } else {
-          // Get the latest stock batch ID for price history reference
-          const latestBatch = await new Promise((resolve, reject) => {
-            db.get(
-              'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1',
-              [id],
-              (err, row) => {
-                if (err) reject(err); else resolve(row);
-              }
-            );
-          });
-          latest_stock_batch_id = latestBatch ? latestBatch.id : null;
+      if (newQuantity !== currentTotal) {
+        const difference = newQuantity - currentTotal;
+        if (difference > 0) {
+          const stockResult = db.prepare(
+            'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).run(id, difference, difference, parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
+          latest_stock_batch_id = stockResult.lastInsertRowid;
         }
+      } else {
+        const latestBatch = db.prepare(
+          'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(id);
+        latest_stock_batch_id = latestBatch ? latestBatch.id : null;
       }
+    }
 
-      // 8. Create price history entry if price changed, with stock_batch_id reference
-      if (!currentPrice || parseFloat(currentPrice) !== parseFloat(sellingPrice)) {
-        await new Promise((resolve, reject) => {
-          db.run(
-            'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-            [id, 1, parseFloat(sellingPrice), latest_stock_batch_id, getCurrentUTCTimestamp()], // Using admin staff_id = 1 as default
-            function (err) {
-              if (err) reject(err); else resolve();
-            }
-          );
-        });
-      }
+    // 8. Create price history entry if price changed
+    if (!currentPrice || parseFloat(currentPrice) !== parseFloat(sellingPrice)) {
+      db.prepare(
+        'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, 1, parseFloat(sellingPrice), latest_stock_batch_id, getCurrentUTCTimestamp());
+    }
 
-      db.run('COMMIT');
-      res.json({ message: 'Item variant updated successfully', item_variant_id: id });
+    return id;
+  });
 
-    } catch (error) {
-      db.run('ROLLBACK');
-      console.error('Update transaction failed:', error.message);
+  try {
+    const item_variant_id = transaction();
+    res.json({ message: 'Item variant updated successfully', item_variant_id });
+  } catch (error) {
+    console.error('Update transaction failed:', error.message);
+    if (error.message === 'Item variant not found' || error.message === 'Category not found') {
+      res.status(404).json({ error: error.message });
+    } else {
       res.status(500).json({ error: error.message });
     }
-  });
+  }
 });
 
 // Get sell price history for an item variant
@@ -559,24 +406,22 @@ server.get('/api/sell-price-history/:variantId', (req, res) => {
   const db = getDatabase();
   const { variantId } = req.params;
 
-  db.all(
-    `SELECT 
-  id,
-  selling_price,
-  created_at,
-  staff_id
-FROM sell_price_history
-WHERE item_variant_id = ?
-ORDER BY created_at DESC`,
-    [variantId],
-    (err, rows) => {
-      if (err) {
-        console.error('Error fetching sell price history:', err);
-        return res.status(500).json({ error: 'Failed to fetch sell price history' });
-      }
-      res.json(rows);
-    }
-  );
+  try {
+    const rows = db.prepare(`
+      SELECT 
+        id,
+        selling_price,
+        created_at,
+        staff_id
+      FROM sell_price_history
+      WHERE item_variant_id = ?
+      ORDER BY created_at DESC
+    `).all(variantId);
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching sell price history:', err);
+    res.status(500).json({ error: 'Failed to fetch sell price history' });
+  }
 });
 
 // Update sell price (creates new history entry)
@@ -588,49 +433,31 @@ server.post('/api/update-sell-price', (req, res) => {
     return res.status(400).json({ error: 'item_variant_id and selling_price are required' });
   }
 
-  // Get the latest stock batch ID if not provided
-  const getStockBatchId = () => {
-    if (stock_batch_id) {
-      return Promise.resolve(stock_batch_id);
+  try {
+    // Get the latest stock batch ID if not provided
+    let batchId = stock_batch_id;
+    if (!batchId) {
+      const latestBatch = db.prepare(
+        'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(item_variant_id);
+      batchId = latestBatch ? latestBatch.id : null;
     }
 
-    return new Promise((resolve, reject) => {
-      db.get(
-        'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1',
-        [item_variant_id],
-        (err, row) => {
-          if (err) reject(err);
-          else resolve(row ? row.id : null);
-        }
-      );
-    });
-  };
+    // Insert new price history entry with stock_batch_id reference
+    const result = db.prepare(`
+      INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) 
+      VALUES (?, ?, ?, ?, ?)
+    `).run(item_variant_id, staff_id, parseFloat(selling_price), batchId, getCurrentUTCTimestamp());
 
-  getStockBatchId()
-    .then(batchId => {
-      // Insert new price history entry with stock_batch_id reference
-      db.run(
-        `INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) 
-         VALUES (?, ?, ?, ?, ?)`,
-        [item_variant_id, staff_id, parseFloat(selling_price), batchId, getCurrentUTCTimestamp()],
-        function (err) {
-          if (err) {
-            console.error('Error updating sell price:', err);
-            return res.status(500).json({ error: 'Failed to update sell price' });
-          }
-
-          res.json({
-            message: 'Sell price updated successfully',
-            historyId: this.lastID,
-            stock_batch_id: batchId
-          });
-        }
-      );
-    })
-    .catch(err => {
-      console.error('Error getting stock batch ID:', err);
-      res.status(500).json({ error: 'Failed to get stock batch information' });
+    res.json({
+      message: 'Sell price updated successfully',
+      historyId: result.lastInsertRowid,
+      stock_batch_id: batchId
     });
+  } catch (err) {
+    console.error('Error updating sell price:', err);
+    res.status(500).json({ error: 'Failed to update sell price' });
+  }
 });
 
 // Health check

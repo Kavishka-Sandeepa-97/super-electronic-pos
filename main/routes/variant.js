@@ -5,12 +5,12 @@ const { getDatabase, getCurrentUTCTimestamp } = require('../database/init');
 // Get all variants
 router.get('/', (req, res) => {
   const db = getDatabase();
-  db.all('SELECT * FROM variant ORDER BY variant_name', (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare('SELECT * FROM variant ORDER BY variant_name').all();
     res.json(rows);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get variant by ID
@@ -18,15 +18,15 @@ router.get('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
   
-  db.get('SELECT * FROM variant WHERE id = ?', [id], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const row = db.prepare('SELECT * FROM variant WHERE id = ?').get(id);
     if (!row) {
       return res.status(404).json({ error: 'Variant not found' });
     }
     res.json(row);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Create new variant
@@ -38,20 +38,16 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Variant name is required' });
   }
   
-  db.run(
-    'INSERT INTO variant (variant_name, created_at) VALUES (?, ?)',
-    [variant_name, getCurrentUTCTimestamp()],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.status(201).json({
-        id: this.lastID,
-        variant_name,
-        message: 'Variant created successfully'
-      });
-    }
-  );
+  try {
+    const result = db.prepare('INSERT INTO variant (variant_name, created_at) VALUES (?, ?)').run(variant_name, getCurrentUTCTimestamp());
+    res.status(201).json({
+      id: result.lastInsertRowid,
+      variant_name,
+      message: 'Variant created successfully'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Update variant
@@ -64,19 +60,15 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: 'Variant name is required' });
   }
   
-  db.run(
-    'UPDATE variant SET variant_name = ? WHERE id = ?',
-    [variant_name, id],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Variant not found' });
-      }
-      res.json({ message: 'Variant updated successfully' });
+  try {
+    const result = db.prepare('UPDATE variant SET variant_name = ? WHERE id = ?').run(variant_name, id);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Variant not found' });
     }
-  );
+    res.json({ message: 'Variant updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Delete variant
@@ -84,11 +76,9 @@ router.delete('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
   
-  // Check if variant is used in item_variant
-  db.get('SELECT COUNT(*) as count FROM item_variant WHERE variant_id = ?', [id], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    // Check if variant is used in item_variant
+    const row = db.prepare('SELECT COUNT(*) as count FROM item_variant WHERE variant_id = ?').get(id);
     
     if (row.count > 0) {
       return res.status(409).json({ 
@@ -96,16 +86,14 @@ router.delete('/:id', (req, res) => {
       });
     }
     
-    db.run('DELETE FROM variant WHERE id = ?', [id], function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Variant not found' });
-      }
-      res.json({ message: 'Variant deleted successfully' });
-    });
-  });
+    const result = db.prepare('DELETE FROM variant WHERE id = ?').run(id);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Variant not found' });
+    }
+    res.json({ message: 'Variant deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

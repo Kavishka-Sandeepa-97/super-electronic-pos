@@ -5,18 +5,17 @@ const { getDatabase, getCurrentUTCTimestamp } = require('../database/init');
 // Get all items with category info
 router.get('/', (req, res) => {
   const db = getDatabase();
-  db.all(
-    `SELECT i.*, c.name as category_name 
-     FROM item i 
-     JOIN category c ON i.category_id = c.id 
-     ORDER BY c.name, i.name`,
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    }
-  );
+  try {
+    const rows = db.prepare(`
+      SELECT i.*, c.name as category_name 
+      FROM item i 
+      JOIN category c ON i.category_id = c.id 
+      ORDER BY c.name, i.name
+    `).all();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get item by ID with variants
@@ -24,47 +23,40 @@ router.get('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
 
-  // Get item details
-  db.get(
-    `SELECT i.*, c.name as category_name 
-     FROM item i 
-     JOIN category c ON i.category_id = c.id 
-     WHERE i.id = ?`,
-    [id],
-    (err, item) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!item) {
-        return res.status(404).json({ error: 'Item not found' });
-      }
+  try {
+    // Get item details
+    const item = db.prepare(`
+      SELECT i.*, c.name as category_name 
+      FROM item i 
+      JOIN category c ON i.category_id = c.id 
+      WHERE i.id = ?
+    `).get(id);
 
-      // Get item variants
-      db.all(
-        `SELECT iv.*, v.variant_name, 
-                COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-                sph.selling_price
-         FROM item_variant iv
-         JOIN variant v ON iv.variant_id = v.id
-         LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
-         LEFT JOIN sell_price_history sph ON iv.id = sph.item_variant_id
-         WHERE iv.item_id = ?
-         GROUP BY iv.id
-         ORDER BY v.variant_name`,
-        [id],
-        (err, variants) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-
-          res.json({
-            ...item,
-            variants: variants
-          });
-        }
-      );
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
     }
-  );
+
+    // Get item variants
+    const variants = db.prepare(`
+      SELECT iv.*, v.variant_name, 
+             COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
+             sph.selling_price
+      FROM item_variant iv
+      JOIN variant v ON iv.variant_id = v.id
+      LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
+      LEFT JOIN sell_price_history sph ON iv.id = sph.item_variant_id
+      WHERE iv.item_id = ?
+      GROUP BY iv.id
+      ORDER BY v.variant_name
+    `).all(id);
+
+    res.json({
+      ...item,
+      variants: variants
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Create new item
@@ -76,32 +68,24 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Category ID and name are required' });
   }
 
-  // Check if category exists
-  db.get('SELECT id FROM category WHERE id = ?', [category_id], (err, category) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    // Check if category exists
+    const category = db.prepare('SELECT id FROM category WHERE id = ?').get(category_id);
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    db.run(
-      'INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)',
-      [category_id, name, image, getCurrentUTCTimestamp()],
-      function (err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.status(201).json({
-          id: this.lastID,
-          category_id,
-          name,
-          image,
-          message: 'Item created successfully'
-        });
-      }
-    );
-  });
+    const result = db.prepare('INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)').run(category_id, name, image, getCurrentUTCTimestamp());
+    res.status(201).json({
+      id: result.lastInsertRowid,
+      category_id,
+      name,
+      image,
+      message: 'Item created successfully'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Update item
@@ -132,19 +116,15 @@ router.put('/:id', (req, res) => {
 
   values.push(id);
 
-  db.run(
-    `UPDATE item SET ${updateFields.join(', ')} WHERE id = ?`,
-    values,
-    function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Item not found' });
-      }
-      res.json({ message: 'Item updated successfully' });
+  try {
+    const result = db.prepare(`UPDATE item SET ${updateFields.join(', ')} WHERE id = ?`).run(...values);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Item not found' });
     }
-  );
+    res.json({ message: 'Item updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Delete item
@@ -152,11 +132,9 @@ router.delete('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
 
-  // Check if item has variants
-  db.get('SELECT COUNT(*) as count FROM item_variant WHERE item_id = ?', [id], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    // Check if item has variants
+    const row = db.prepare('SELECT COUNT(*) as count FROM item_variant WHERE item_id = ?').get(id);
 
     if (row.count > 0) {
       return res.status(409).json({
@@ -164,16 +142,14 @@ router.delete('/:id', (req, res) => {
       });
     }
 
-    db.run('DELETE FROM item WHERE id = ?', [id], function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Item not found' });
-      }
-      res.json({ message: 'Item deleted successfully' });
-    });
-  });
+    const result = db.prepare('DELETE FROM item WHERE id = ?').run(id);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json({ message: 'Item deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Search items
@@ -181,20 +157,18 @@ router.get('/search/:query', (req, res) => {
   const db = getDatabase();
   const { query } = req.params;
 
-  db.all(
-    `SELECT i.*, c.name as category_name 
-     FROM item i 
-     JOIN category c ON i.category_id = c.id 
-     WHERE i.name LIKE ? OR c.name LIKE ?
-     ORDER BY i.name`,
-    [`%${query}%`, `%${query}%`],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    }
-  );
+  try {
+    const rows = db.prepare(`
+      SELECT i.*, c.name as category_name 
+      FROM item i 
+      JOIN category c ON i.category_id = c.id 
+      WHERE i.name LIKE ? OR c.name LIKE ?
+      ORDER BY i.name
+    `).all(`%${query}%`, `%${query}%`);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

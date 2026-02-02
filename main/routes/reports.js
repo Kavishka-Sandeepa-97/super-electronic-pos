@@ -89,27 +89,27 @@ router.get('/pos/revenue', (req, res) => {
       groupFormat = "strftime('%Y-%m-%d', date)";
   }
 
-  const query = `
-    SELECT
-      ${groupFormat} as period,
-      COUNT(*) as order_count,
-      SUM(total_amount) as total_revenue,
-      MIN(total_amount) as min_order,
-      MAX(total_amount) as max_order
-    FROM orders
-    WHERE status = 'completed'
-      AND DATE(date) >= ?
-      AND DATE(date) <= ?
-    GROUP BY ${groupFormat}
-    ORDER BY period DESC
-  `;
+  try {
+    const query = `
+      SELECT
+        ${groupFormat} as period,
+        COUNT(*) as order_count,
+        SUM(total_amount) as total_revenue,
+        MIN(total_amount) as min_order,
+        MAX(total_amount) as max_order
+      FROM orders
+      WHERE status = 'completed'
+        AND DATE(date) >= ?
+        AND DATE(date) <= ?
+      GROUP BY ${groupFormat}
+      ORDER BY period DESC
+    `;
 
-  db.all(query, [start, end], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    const rows = db.prepare(query).all(start, end);
     res.json({ data: rows, dateRange: { start, end } });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Top selling products
@@ -119,33 +119,32 @@ router.get('/pos/top-products', (req, res) => {
 
   const { start, end } = getDateRange(period, start_date, end_date);
 
-  const query = `
-    SELECT
-      i.name as item_name,
-      v.variant_name,
-      iv.barcode,
-      SUM(ivo.qty) as total_quantity,
-      SUM(ivo.qty * ivo.unit_price) as total_revenue,
-      COUNT(DISTINCT ivo.order_id) as order_count
-    FROM item_variant_order ivo
-    JOIN item_variant iv ON ivo.item_variant_id = iv.id
-    JOIN item i ON iv.item_id = i.id
-    JOIN variant v ON iv.variant_id = v.id
-    JOIN orders o ON ivo.order_id = o.id
-    WHERE o.status = 'completed'
-      AND DATE(o.date) >= ?
-      AND DATE(o.date) <= ?
-    GROUP BY iv.id
-    ORDER BY total_quantity DESC
-    LIMIT ?
-  `;
-
-  db.all(query, [start, end, parseInt(limit)], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare(`
+      SELECT
+        i.name as item_name,
+        v.variant_name,
+        iv.barcode,
+        SUM(ivo.qty) as total_quantity,
+        SUM(ivo.qty * ivo.unit_price) as total_revenue,
+        COUNT(DISTINCT ivo.order_id) as order_count
+      FROM item_variant_order ivo
+      JOIN item_variant iv ON ivo.item_variant_id = iv.id
+      JOIN item i ON iv.item_id = i.id
+      JOIN variant v ON iv.variant_id = v.id
+      JOIN orders o ON ivo.order_id = o.id
+      WHERE o.status = 'completed'
+        AND DATE(o.date) >= ?
+        AND DATE(o.date) <= ?
+      GROUP BY iv.id
+      ORDER BY total_quantity DESC
+      LIMIT ?
+    `).all(start, end, parseInt(limit));
+    
     res.json({ data: rows, dateRange: { start, end } });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Category sales report
@@ -155,30 +154,29 @@ router.get('/pos/category-sales', (req, res) => {
 
   const { start, end } = getDateRange(period, start_date, end_date);
 
-  const query = `
-    SELECT
-      c.name as category_name,
-      COUNT(DISTINCT o.id) as order_count,
-      SUM(ivo.qty) as total_quantity,
-      SUM(ivo.qty * ivo.unit_price) as total_revenue
-    FROM orders o
-    JOIN item_variant_order ivo ON o.id = ivo.order_id
-    JOIN item_variant iv ON ivo.item_variant_id = iv.id
-    JOIN item i ON iv.item_id = i.id
-    JOIN category c ON i.category_id = c.id
-    WHERE o.status = 'completed'
-      AND DATE(o.date) >= ?
-      AND DATE(o.date) <= ?
-    GROUP BY c.id
-    ORDER BY total_revenue DESC
-  `;
-
-  db.all(query, [start, end], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare(`
+      SELECT
+        c.name as category_name,
+        COUNT(DISTINCT o.id) as order_count,
+        SUM(ivo.qty) as total_quantity,
+        SUM(ivo.qty * ivo.unit_price) as total_revenue
+      FROM orders o
+      JOIN item_variant_order ivo ON o.id = ivo.order_id
+      JOIN item_variant iv ON ivo.item_variant_id = iv.id
+      JOIN item i ON iv.item_id = i.id
+      JOIN category c ON i.category_id = c.id
+      WHERE o.status = 'completed'
+        AND DATE(o.date) >= ?
+        AND DATE(o.date) <= ?
+      GROUP BY c.id
+      ORDER BY total_revenue DESC
+    `).all(start, end);
+    
     res.json({ data: rows, dateRange: { start, end } });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Stock Reports
@@ -190,67 +188,66 @@ router.get('/stock/transactions', (req, res) => {
 
   const { start, end } = getDateRange(period, start_date, end_date);
 
-  let query = `
-    SELECT
-      st.*,
-      sp.name as product_name,
-      sc.name as category_name,
-      u.name as unit_name,
-      ss.name as supplier_name,
-      s.name as staff_name
-    FROM stock_transaction st
-    JOIN stock_product sp ON st.product_id = sp.id
-    JOIN stock_category sc ON sp.category_id = sc.id
-    JOIN unit u ON sp.unit_id = u.id
-    LEFT JOIN stock_supplier ss ON st.supplier_id = ss.id
-    JOIN staff s ON st.user_id = s.id
-    WHERE DATE(st.created_at) >= ?
-      AND DATE(st.created_at) <= ?
-  `;
+  try {
+    let query = `
+      SELECT
+        st.*,
+        sp.name as product_name,
+        sc.name as category_name,
+        u.name as unit_name,
+        ss.name as supplier_name,
+        s.name as staff_name
+      FROM stock_transaction st
+      JOIN stock_product sp ON st.product_id = sp.id
+      JOIN stock_category sc ON sp.category_id = sc.id
+      JOIN unit u ON sp.unit_id = u.id
+      LEFT JOIN stock_supplier ss ON st.supplier_id = ss.id
+      JOIN staff s ON st.user_id = s.id
+      WHERE DATE(st.created_at) >= ?
+        AND DATE(st.created_at) <= ?
+    `;
 
-  const params = [start, end];
+    const params = [start, end];
 
-  if (type) {
-    query += ' AND st.type = ?';
-    params.push(type);
-  }
-
-  if (supplier_id) {
-    query += ' AND st.supplier_id = ?';
-    params.push(supplier_id);
-  }
-
-  query += ' ORDER BY st.created_at DESC';
-
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (type) {
+      query += ' AND st.type = ?';
+      params.push(type);
     }
+
+    if (supplier_id) {
+      query += ' AND st.supplier_id = ?';
+      params.push(supplier_id);
+    }
+
+    query += ' ORDER BY st.created_at DESC';
+
+    const rows = db.prepare(query).all(...params);
     res.json({ data: rows, dateRange: { start, end } });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Current stock levels
 router.get('/stock/levels', (req, res) => {
   const db = getDatabase();
 
-  const query = `
-    SELECT
-      sp.*,
-      sc.name as category_name,
-      u.name as unit_name
-    FROM stock_product sp
-    JOIN stock_category sc ON sp.category_id = sc.id
-    JOIN unit u ON sp.unit_id = u.id
-    ORDER BY sp.name
-  `;
-
-  db.all(query, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare(`
+      SELECT
+        sp.*,
+        sc.name as category_name,
+        u.name as unit_name
+      FROM stock_product sp
+      JOIN stock_category sc ON sp.category_id = sc.id
+      JOIN unit u ON sp.unit_id = u.id
+      ORDER BY sp.name
+    `).all();
+    
     res.json({ data: rows });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Low stock report
@@ -258,24 +255,23 @@ router.get('/stock/low-stock', (req, res) => {
   const db = getDatabase();
   const { threshold = 10 } = req.query;
 
-  const query = `
-    SELECT
-      sp.*,
-      sc.name as category_name,
-      u.name as unit_name
-    FROM stock_product sp
-    JOIN stock_category sc ON sp.category_id = sc.id
-    JOIN unit u ON sp.unit_id = u.id
-    WHERE sp.current_qty <= ?
-    ORDER BY sp.current_qty ASC
-  `;
-
-  db.all(query, [parseFloat(threshold)], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare(`
+      SELECT
+        sp.*,
+        sc.name as category_name,
+        u.name as unit_name
+      FROM stock_product sp
+      JOIN stock_category sc ON sp.category_id = sc.id
+      JOIN unit u ON sp.unit_id = u.id
+      WHERE sp.current_qty <= ?
+      ORDER BY sp.current_qty ASC
+    `).all(parseFloat(threshold));
+    
     res.json({ data: rows, threshold });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Supplier purchase report
@@ -285,28 +281,27 @@ router.get('/stock/supplier-purchases', (req, res) => {
 
   const { start, end } = getDateRange(period, start_date, end_date);
 
-  const query = `
-    SELECT
-      ss.id as supplier_id,
-      ss.name as supplier_name,
-      COALESCE(COUNT(st.id), 0) as transaction_count,
-      COALESCE(SUM(st.qty), 0) as total_quantity,
-      COALESCE(SUM(st.price * st.qty), 0) as total_amount
-    FROM stock_supplier ss
-    LEFT JOIN stock_transaction st ON ss.id = st.supplier_id 
-      AND st.type = 'IN'
-      AND DATE(st.created_at) >= ?
-      AND DATE(st.created_at) <= ?
-    GROUP BY ss.id, ss.name
-    ORDER BY total_amount DESC
-  `;
-
-  db.all(query, [start, end], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = db.prepare(`
+      SELECT
+        ss.id as supplier_id,
+        ss.name as supplier_name,
+        COALESCE(COUNT(st.id), 0) as transaction_count,
+        COALESCE(SUM(st.qty), 0) as total_quantity,
+        COALESCE(SUM(st.price * st.qty), 0) as total_amount
+      FROM stock_supplier ss
+      LEFT JOIN stock_transaction st ON ss.id = st.supplier_id 
+        AND st.type = 'IN'
+        AND DATE(st.created_at) >= ?
+        AND DATE(st.created_at) <= ?
+      GROUP BY ss.id, ss.name
+      ORDER BY total_amount DESC
+    `).all(start, end);
+    
     res.json({ data: rows, dateRange: { start, end } });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
