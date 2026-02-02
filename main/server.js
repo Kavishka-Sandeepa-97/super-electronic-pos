@@ -171,8 +171,8 @@ server.post('/api/item-variants/create-full', upload.single('image'), async (req
       // 6. Insert into sell_price_history with stock_batch_id reference
       await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-          [item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp()], // Using admin user_id = 1 as default
+          'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
+          [item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp()], // Using admin staff_id = 1 as default
           function (err) {
             if (err) reject(err); else resolve();
           }
@@ -292,7 +292,7 @@ server.post('/api/items/create-with-variants', upload.single('image'), async (re
         // Insert into sell_price_history
         await new Promise((resolve, reject) => {
           db.run(
-            'INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
             [item_variant_id, 1, parseFloat(sellingPrice), stock_batch_id, getCurrentUTCTimestamp()],
             function (err) {
               if (err) reject(err); else resolve();
@@ -534,8 +534,8 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), async (
       if (!currentPrice || parseFloat(currentPrice) !== parseFloat(sellingPrice)) {
         await new Promise((resolve, reject) => {
           db.run(
-            'INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-            [id, 1, parseFloat(sellingPrice), latest_stock_batch_id, getCurrentUTCTimestamp()], // Using admin user_id = 1 as default
+            'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
+            [id, 1, parseFloat(sellingPrice), latest_stock_batch_id, getCurrentUTCTimestamp()], // Using admin staff_id = 1 as default
             function (err) {
               if (err) reject(err); else resolve();
             }
@@ -564,7 +564,7 @@ server.get('/api/sell-price-history/:variantId', (req, res) => {
   id,
   selling_price,
   created_at,
-  user_id
+  staff_id
 FROM sell_price_history
 WHERE item_variant_id = ?
 ORDER BY created_at DESC`,
@@ -582,7 +582,7 @@ ORDER BY created_at DESC`,
 // Update sell price (creates new history entry)
 server.post('/api/update-sell-price', (req, res) => {
   const db = getDatabase();
-  const { item_variant_id, selling_price, user_id = 1, stock_batch_id } = req.body;
+  const { item_variant_id, selling_price, staff_id = 1, stock_batch_id } = req.body;
 
   if (!item_variant_id || !selling_price) {
     return res.status(400).json({ error: 'item_variant_id and selling_price are required' });
@@ -610,9 +610,9 @@ server.post('/api/update-sell-price', (req, res) => {
     .then(batchId => {
       // Insert new price history entry with stock_batch_id reference
       db.run(
-        `INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, stock_batch_id, created_at) 
+        `INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) 
          VALUES (?, ?, ?, ?, ?)`,
-        [item_variant_id, user_id, parseFloat(selling_price), batchId, getCurrentUTCTimestamp()],
+        [item_variant_id, staff_id, parseFloat(selling_price), batchId, getCurrentUTCTimestamp()],
         function (err) {
           if (err) {
             console.error('Error updating sell price:', err);

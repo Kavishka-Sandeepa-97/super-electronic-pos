@@ -106,7 +106,7 @@ const OrderSummary = () => {
 
     try {
       const orderData = {
-        admin_id: user.id,
+        staff_id: user.id,
         items: mapOrderItems(currentOrder.items),
         additional_charges: currentOrder.additionalCharges,
         customer_name: currentOrder.customerName,
@@ -145,7 +145,7 @@ const OrderSummary = () => {
       if (currentOrder.id) {
         // Update the order with current items and status to completed
         const orderData = {
-          admin_id: user.id,
+          staff_id: user.id,
           items: mapOrderItems(currentOrder.items),
           additional_charges: currentOrder.additionalCharges,
           customer_name: currentOrder.customerName,
@@ -160,7 +160,7 @@ const OrderSummary = () => {
       } else {
         // Create a new completed order
         const orderData = {
-          admin_id: user.id,
+          staff_id: user.id,
           items: mapOrderItems(currentOrder.items),
           additional_charges: currentOrder.additionalCharges,
           customer_name: currentOrder.customerName,
@@ -210,7 +210,7 @@ const OrderSummary = () => {
     if (currentOrder.items.length === 0) return;
 
     const orderData = {
-      admin_id: user.id,
+      staff_id: user.id,
       items: mapOrderItems(currentOrder.items),
       additional_charges: currentOrder.additionalCharges,
       customer_name: customerName || null,

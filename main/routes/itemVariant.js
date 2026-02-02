@@ -69,7 +69,7 @@ router.get('/:id', (req, res) => {
 // Create new item variant (optionally set initial selling price)
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { variant_id, item_id, barcode, selling_price, user_id } = req.body;
+  const { variant_id, item_id, barcode, selling_price, staff_id } = req.body;
 
   if (!variant_id || !item_id) {
     return res.status(400).json({ error: 'Variant ID and Item ID are required' });
@@ -107,10 +107,10 @@ router.post('/', (req, res) => {
 
           // If an initial selling price was provided, insert into sell_price_history
           if (selling_price !== undefined && selling_price !== null && selling_price !== '') {
-            // Use provided user_id or fall back to admin (1)
-            const uid = user_id || 1;
+            // Use provided staff_id or fall back to admin (1)
+            const uid = staff_id || 1;
             db.run(
-              'INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, created_at) VALUES (?, ?, ?, ?)',
+              'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)',
               [newVariantId, uid, selling_price, getCurrentUTCTimestamp()],
               function (err2) {
                 if (err2) {
@@ -298,15 +298,15 @@ router.get('/barcode/:barcode', (req, res) => {
 router.post('/:id/price', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { selling_price, user_id, stock_batch_id } = req.body;
+  const { selling_price, staff_id, stock_batch_id } = req.body;
 
-  if (!selling_price || !user_id) {
-    return res.status(400).json({ error: 'Selling price and user ID are required' });
+  if (!selling_price || !staff_id) {
+    return res.status(400).json({ error: 'Selling price and staff ID are required' });
   }
 
   db.run(
-    'INSERT INTO sell_price_history (item_variant_id, user_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
-    [id, user_id, selling_price, stock_batch_id, getCurrentUTCTimestamp()],
+    'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)',
+    [id, staff_id, selling_price, stock_batch_id, getCurrentUTCTimestamp()],
     function (err) {
       if (err) {
         return res.status(500).json({ error: err.message });

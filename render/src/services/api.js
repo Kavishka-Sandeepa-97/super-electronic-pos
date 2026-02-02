@@ -550,12 +550,12 @@ export const cashierShiftAPI = {
 
   getMyShifts: async (userId) => {
     const shifts = await makeRequest('/cashier-shifts');
-    return shifts.filter(shift => shift.user_id === userId);
+    return shifts.filter(shift => shift.staff_id === userId);
   },
 
   getActiveShift: async (userId) => {
     const openShifts = await makeRequest('/cashier-shifts/status/open');
-    return openShifts.find(shift => shift.user_id === userId) || null;
+    return openShifts.find(shift => shift.staff_id === userId) || null;
   },
 
   openShift: async (shiftData) => {

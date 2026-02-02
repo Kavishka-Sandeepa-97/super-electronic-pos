@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   db.all(`
     SELECT cs.*, s.name as user_name, s.username as user_username
     FROM cashier_shift cs
-    JOIN staff s ON cs.user_id = s.id
+    JOIN staff s ON cs.staff_id = s.id
     ORDER BY cs.open_at DESC
   `, (err, rows) => {
     if (err) {
@@ -26,7 +26,7 @@ router.get('/:id', (req, res) => {
   db.get(`
     SELECT cs.*, s.name as user_name, s.username as user_username
     FROM cashier_shift cs
-    JOIN staff s ON cs.user_id = s.id
+    JOIN staff s ON cs.staff_id = s.id
     WHERE cs.id = ?
   `, [id], (err, row) => {
     if (err) {
@@ -45,7 +45,7 @@ router.get('/status/open', (req, res) => {
   db.all(`
     SELECT cs.*, s.name as user_name, s.username as user_username
     FROM cashier_shift cs
-    JOIN staff s ON cs.user_id = s.id
+    JOIN staff s ON cs.staff_id = s.id
     WHERE cs.status = 'open'
     ORDER BY cs.open_at DESC
   `, (err, rows) => {
@@ -59,14 +59,14 @@ router.get('/status/open', (req, res) => {
 // Create new cashier shift (open shift)
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { user_id, initial_cash_onhand, description } = req.body;
+  const { staff_id, initial_cash_onhand, description } = req.body;
 
-  if (!user_id) {
-    return res.status(400).json({ error: 'User ID is required' });
+  if (!staff_id) {
+    return res.status(400).json({ error: 'Staff ID is required' });
   }
 
   // Check if user exists
-  db.get('SELECT id FROM staff WHERE id = ?', [user_id], (err, user) => {
+  db.get('SELECT id FROM staff WHERE id = ?', [staff_id], (err, user) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -75,7 +75,7 @@ router.post('/', (req, res) => {
     }
 
     // Check if user already has an open shift
-    db.get('SELECT id FROM cashier_shift WHERE user_id = ? AND status = "open"', [user_id], (err, existingShift) => {
+    db.get('SELECT id FROM cashier_shift WHERE staff_id = ? AND status = "open"', [staff_id], (err, existingShift) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
@@ -85,10 +85,10 @@ router.post('/', (req, res) => {
 
       // Create new shift
       const sql = `
-        INSERT INTO cashier_shift (user_id, open_at, initial_cash_onhand, current_cash_onhand, description, status)
+        INSERT INTO cashier_shift (staff_id, open_at, initial_cash_onhand, current_cash_onhand, description, status)
         VALUES (?, ?, ?, ?, ?, 'open')
       `;
-      const params = [user_id, getCurrentUTCTimestamp(), initial_cash_onhand || 0, initial_cash_onhand || 0, description || ''];
+      const params = [staff_id, getCurrentUTCTimestamp(), initial_cash_onhand || 0, initial_cash_onhand || 0, description || ''];
 
       db.run(sql, params, function(err) {
         if (err) {

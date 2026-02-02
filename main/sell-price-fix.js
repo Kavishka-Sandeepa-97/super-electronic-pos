@@ -11,7 +11,7 @@ server.get('/api/sell-price-history/:variantId', (req, res) => {
       id,
       selling_price,
       created_at,
-      user_id
+      staff_id
     FROM sell_price_history
     WHERE item_variant_id = ?
     ORDER BY created_at DESC
@@ -34,7 +34,7 @@ server.get('/api/sell-price-history/:variantId', (req, res) => {
 // SIMPLIFIED - Update sell price
 server.post('/api/sell-price-history/update', (req, res) => {
     const db = getDatabase();
-    const { item_variant_id, selling_price, user_id = 1 } = req.body;
+    const { item_variant_id, selling_price, staff_id = 1 } = req.body;
 
     if (!item_variant_id || !selling_price) {
         return res.status(400).json({
@@ -45,9 +45,9 @@ server.post('/api/sell-price-history/update', (req, res) => {
     console.log('=== Updating price for variant:', item_variant_id, 'New price:', selling_price);
 
     db.run(
-        `INSERT INTO sell_price_history (item_variant_id, user_id, selling_price) 
+        `INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price) 
      VALUES (?, ?, ?)`,
-        [item_variant_id, user_id, parseFloat(selling_price)],
+        [item_variant_id, staff_id, parseFloat(selling_price)],
         function (err) {
             if (err) {
                 console.error('=== Error updating sell price:', err.message);

@@ -572,7 +572,7 @@ const Settings = () => {
               </TableHead>
               <TableBody>
                 {cashierShifts
-                  .filter(shift => user?.role === 'admin' || shift.user_id === user?.id)
+                  .filter(shift => user?.role === 'admin' || shift.staff_id === user?.id)
                   .map((shift) => (
                     <TableRow key={shift.id}>
                       <TableCell>{shift.user_name}</TableCell>
@@ -608,7 +608,7 @@ const Settings = () => {
                       </TableCell>
                     </TableRow>
                   ))}
-                {cashierShifts.filter(shift => user?.role === 'admin' || shift.user_id === user?.id).length === 0 && (
+                {cashierShifts.filter(shift => user?.role === 'admin' || shift.staff_id === user?.id).length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} align="center">
                       No cashier shifts found

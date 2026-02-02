@@ -60,14 +60,14 @@ const createTables = () => {
     db.run(`
       CREATE TABLE IF NOT EXISTS cashier_shift (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
+        staff_id INTEGER NOT NULL,
         initial_cash_onhand DECIMAL(10,2),
         current_cash_onhand DECIMAL(10,2),
         open_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         close_at DATETIME,
         description TEXT,
         status TEXT CHECK(status IN ('open', 'closed')) NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES staff(id)
+        FOREIGN KEY (staff_id) REFERENCES staff(id)
       )
     `);
 
@@ -118,7 +118,7 @@ const createTables = () => {
     db.run(`
       CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        admin_id INTEGER NOT NULL,
+        staff_id INTEGER NOT NULL,
         date DATETIME DEFAULT CURRENT_TIMESTAMP,
         additional_charges DECIMAL(10,2) DEFAULT 0,
         total_amount DECIMAL(10,2) NOT NULL,
@@ -127,7 +127,8 @@ const createTables = () => {
         tender_cash DECIMAL(10,2),
         discount_type TEXT CHECK(discount_type IN ('fixed', 'percent')),
         discount_value DECIMAL(10,2) DEFAULT 0,
-        FOREIGN KEY (admin_id) REFERENCES staff(id)
+        is_card_payment BOOLEAN DEFAULT 0,
+        FOREIGN KEY (staff_id) REFERENCES staff(id)
       )
     `);
 
@@ -151,11 +152,12 @@ const createTables = () => {
       CREATE TABLE IF NOT EXISTS sell_price_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         item_variant_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
+        staff_id INTEGER NOT NULL,
         selling_price DECIMAL(10,2) NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
-        FOREIGN KEY (user_id) REFERENCES staff(id)
+        FOREIGN KEY (staff_id) REFERENCES staff(id)
       )
     `);
 
@@ -169,6 +171,34 @@ const createTables = () => {
         staff_id INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (staff_id) REFERENCES staff(id)
+      )
+    `);
+
+    // Supplier table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS supplier (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone_number TEXT,
+        description TEXT
+      )
+    `);
+
+    // Stock Batch table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS stock_batch (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_variant_id INTEGER NOT NULL,
+        buy_price DECIMAL(10,2) NOT NULL,
+        initial_qty INTEGER NOT NULL,
+        remaining_qty INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        description TEXT,
+        expire_date DATE,
+        supplier_id INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+        FOREIGN KEY (supplier_id) REFERENCES supplier(id)
       )
     `);
 
@@ -187,14 +217,17 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_item_variant_barcode ON item_variant(barcode)',
     'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)',
     'CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date)',
-    'CREATE INDEX IF NOT EXISTS idx_orders_admin ON orders(admin_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_staff ON orders(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_order ON item_variant_order(order_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_variant ON item_variant_order(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_variant ON sell_price_history(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_created ON sell_price_history(created_at)',
-    'CREATE INDEX IF NOT EXISTS idx_cashier_shift_user ON cashier_shift(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_cashier_shift_staff ON cashier_shift(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_status ON cashier_shift(status)',
-    'CREATE INDEX IF NOT EXISTS idx_cashier_shift_open_at ON cashier_shift(open_at)'
+    'CREATE INDEX IF NOT EXISTS idx_cashier_shift_open_at ON cashier_shift(open_at)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_item_variant ON stock_batch(item_variant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_supplier ON stock_batch(supplier_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_expire_date ON stock_batch(expire_date)'
   ];
 
   db.serialize(() => {

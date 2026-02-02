@@ -10,7 +10,7 @@ router.get('/', (req, res) => {
   let query = `
     SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name 
     FROM orders o 
-    JOIN staff s ON o.admin_id = s.id
+    JOIN staff s ON o.staff_id = s.id
   `;
   let params = [];
   let conditions = [];
@@ -85,7 +85,7 @@ router.get('/:id', (req, res) => {
   db.get(
     `SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name 
      FROM orders o 
-     JOIN staff s ON o.admin_id = s.id 
+     JOIN staff s ON o.staff_id = s.id 
      WHERE o.id = ?`,
     [id],
     (err, order) => {
@@ -125,7 +125,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   const db = getDatabase();
   const { 
-    admin_id, 
+    staff_id, 
     additional_charges = 0, 
     customer_name, 
     tender_cash,
@@ -135,8 +135,8 @@ router.post('/', (req, res) => {
     items 
   } = req.body;
   
-  if (!admin_id || !items || items.length === 0) {
-    return res.status(400).json({ error: 'Admin ID and items are required' });
+  if (!staff_id || !items || items.length === 0) {
+    return res.status(400).json({ error: 'Staff ID and items are required' });
   }
 
   if (!['active', 'completed', 'cancelled'].includes(status)) {
@@ -163,10 +163,10 @@ router.post('/', (req, res) => {
     
     // Insert order
     db.run(
-      `INSERT INTO orders (admin_id, date, additional_charges, total_amount, 
+      `INSERT INTO orders (staff_id, date, additional_charges, total_amount, 
                           customer_name, tender_cash, discount_type, discount_value, status) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [admin_id, getCurrentUTCTimestamp(), additional_charges, total_amount, customer_name, 
+      [staff_id, getCurrentUTCTimestamp(), additional_charges, total_amount, customer_name, 
        tender_cash, discount_type, discount_value, status],
       function(err) {
         if (err) {
@@ -251,7 +251,7 @@ router.post('/', (req, res) => {
                             `UPDATE cashier_shift 
                              SET current_cash_onhand = current_cash_onhand + ? 
                              WHERE user_id = ? AND status = 'open'`,
-                            [total_amount, admin_id],
+                            [total_amount, staff_id],
                             (err) => {
                               if (err) {
                                 console.error('Error updating cashier cash:', err);
@@ -396,7 +396,7 @@ router.put('/:id/status', (req, res) => {
       
       // First get the order details for cash update
       db.get(
-        'SELECT total_amount, admin_id, status as current_status FROM orders WHERE id = ?',
+        'SELECT total_amount, staff_id, status as current_status FROM orders WHERE id = ?',
         [id],
         (err, order) => {
           if (err) {
@@ -430,7 +430,7 @@ router.put('/:id/status', (req, res) => {
                   `UPDATE cashier_shift 
                    SET current_cash_onhand = current_cash_onhand + ? 
                    WHERE user_id = ? AND status = 'open'`,
-                  [order.total_amount, order.admin_id],
+                  [order.total_amount, order.staff_id],
                   (err) => {
                     if (err) {
                       console.error('Error updating cashier cash:', err);
@@ -466,7 +466,7 @@ router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
   const { 
-    admin_id,
+    staff_id,
     additional_charges = 0, 
     customer_name, 
     discount_type,
@@ -496,7 +496,7 @@ router.put('/:id', (req, res) => {
   const total_amount = subtotal + additional_charges - discount_amount;
   
   // Get old order details for cash adjustment
-  db.get('SELECT total_amount as old_total, status as old_status, admin_id FROM orders WHERE id = ?', [id], (err, oldOrder) => {
+  db.get('SELECT total_amount as old_total, status as old_status, staff_id FROM orders WHERE id = ?', [id], (err, oldOrder) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -695,7 +695,7 @@ router.put('/:id', (req, res) => {
                                   `UPDATE cashier_shift 
                                    SET current_cash_onhand = current_cash_onhand + ? 
                                    WHERE user_id = ? AND status = 'open'`,
-                                  [cash_change, oldOrder.admin_id]
+                                  [cash_change, oldOrder.staff_id]
                                 );
                               }
                               
