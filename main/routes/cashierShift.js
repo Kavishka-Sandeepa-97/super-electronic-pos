@@ -60,21 +60,23 @@ router.get('/status/open', (req, res) => {
 // Create new cashier shift (open shift)
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { staff_id, initial_cash_onhand, description } = req.body;
+  // Accept both staff_id and user_id for backwards compatibility
+  const { staff_id, user_id, initial_cash_onhand, description } = req.body;
+  const staffId = staff_id || user_id;
 
-  if (!staff_id) {
+  if (!staffId) {
     return res.status(400).json({ error: 'Staff ID is required' });
   }
 
   try {
     // Check if user exists
-    const user = db.prepare('SELECT id FROM staff WHERE id = ?').get(staff_id);
+    const user = db.prepare('SELECT id FROM staff WHERE id = ?').get(staffId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Check if user already has an open shift
-    const existingShift = db.prepare('SELECT id FROM cashier_shift WHERE staff_id = ? AND status = "open"').get(staff_id);
+    const existingShift = db.prepare("SELECT id FROM cashier_shift WHERE staff_id = ? AND status = 'open'").get(staffId);
     if (existingShift) {
       return res.status(400).json({ error: 'User already has an open shift' });
     }
@@ -83,7 +85,7 @@ router.post('/', (req, res) => {
     const result = db.prepare(`
       INSERT INTO cashier_shift (staff_id, open_at, initial_cash_onhand, current_cash_onhand, description, status)
       VALUES (?, ?, ?, ?, ?, 'open')
-    `).run(staff_id, getCurrentUTCTimestamp(), initial_cash_onhand || 0, initial_cash_onhand || 0, description || '');
+    `).run(staffId, getCurrentUTCTimestamp(), initial_cash_onhand || 0, initial_cash_onhand || 0, description || '');
 
     res.status(201).json({
       id: result.lastInsertRowid,
@@ -106,7 +108,7 @@ router.put('/:id/close', (req, res) => {
 
   try {
     // Check if shift exists and is open
-    const shift = db.prepare('SELECT * FROM cashier_shift WHERE id = ? AND status = "open"').get(id);
+    const shift = db.prepare("SELECT * FROM cashier_shift WHERE id = ? AND status = 'open'").get(id);
     if (!shift) {
       return res.status(404).json({ error: 'Open cashier shift not found' });
     }
