@@ -868,9 +868,21 @@ const Inventory = () => {
     item_id: '',
     variant_id: '',
     barcode: '',
-    sellingPrice: ''
+    sellingPrice: '',
+    buyingPrice: '',
+    quantity: '',
+    expireDate: '',
+    description: ''
   });
   const [itemSearchText, setItemSearchText] = useState('');
+
+  // Generate random 9-digit barcode
+  const generateRandomBarcode = () => {
+    // Generate a valid EAN-8 style barcode (9 digits)
+    const prefix = '200'; // Internal use prefix
+    const random = Math.floor(100000 + Math.random() * 900000).toString();
+    return prefix + random;
+  };
 
   useEffect(() => {
     dispatch(fetchCategories());
@@ -1024,8 +1036,12 @@ const Inventory = () => {
     setNewItemVariant({
       item_id: '',
       variant_id: '',
-      barcode: '',
-      sellingPrice: ''
+      barcode: generateRandomBarcode(),
+      sellingPrice: '',
+      buyingPrice: '',
+      quantity: '',
+      expireDate: '',
+      description: ''
     });
     setItemSearchText('');
     setAddItemVariantDialog(true);
@@ -1037,19 +1053,36 @@ const Inventory = () => {
       return;
     }
 
+    // Validate required fields for stock
+    if (!newItemVariant.buyingPrice || !newItemVariant.quantity || !newItemVariant.sellingPrice) {
+      toast.error('Please fill in buying price, selling price, and quantity');
+      return;
+    }
+
     try {
-      await api.itemVariants.create({
+      // 1. Create item variant first
+      const itemVariantResponse = await api.itemVariants.create({
         item_id: newItemVariant.item_id,
         variant_id: newItemVariant.variant_id,
         barcode: newItemVariant.barcode || null,
-        selling_price: newItemVariant.sellingPrice ? parseFloat(newItemVariant.sellingPrice) : undefined,
-        user_id: user?.id
+        selling_price: parseFloat(newItemVariant.sellingPrice),
+        staff_id: user?.id
       });
-      toast.success('Item variant added successfully');
+
+      // 2. Create stock batch with the new item_variant_id
+      await api.stock.addBatch({
+        item_variant_id: itemVariantResponse.id,
+        buyingPrice: parseFloat(newItemVariant.buyingPrice),
+        quantity: parseInt(newItemVariant.quantity),
+        description: newItemVariant.description || null,
+        expire_date: newItemVariant.expireDate || null
+      });
+
+      toast.success('Product added successfully with stock!');
       dispatch(fetchItemVariants());
       setAddItemVariantDialog(false);
     } catch (error) {
-      toast.error('Failed to add item variant: ' + error.message);
+      toast.error('Failed to add product: ' + error.message);
     }
   };
 
@@ -2463,13 +2496,33 @@ const Inventory = () => {
       <Dialog
         open={addItemVariantDialog}
         onClose={() => setAddItemVariantDialog(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderTop: '4px solid #4CAF50',
+            borderRadius: '8px',
+          }
+        }}
       >
-        <DialogTitle>Add New Item Variant</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
+        <DialogTitle 
+          sx={{ 
+            bgcolor: '#E8F5E9', 
+            color: '#2E7D32',
+            fontWeight: 'bold',
+            fontSize: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1
+          }}
+        >
+          <AddIcon sx={{ color: '#4CAF50' }} />
+          Add New Final Selling Product
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Grid container spacing={2} sx={{ mt: 0 }}>
+            {/* Item Selection */}
+            <Grid item xs={12} sm={6}>
               <Autocomplete
                 options={(() => {
                   // Get unique items from itemVariants
@@ -2532,7 +2585,8 @@ const Inventory = () => {
               />
             </Grid>
 
-            <Grid item xs={12}>
+            {/* Variant Selection */}
+            <Grid item xs={12} sm={6}>
               <FormControl fullWidth required>
                 <InputLabel>Variant *</InputLabel>
                 <Select
@@ -2549,25 +2603,91 @@ const Inventory = () => {
               </FormControl>
             </Grid>
 
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Barcode"
-                value={newItemVariant.barcode}
-                onChange={(e) => setNewItemVariant({ ...newItemVariant, barcode: e.target.value })}
-                placeholder="Enter barcode (optional)"
-              />
-            </Grid>
-
+            {/* Barcode with regenerate button */}
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Selling Price"
+                label="Barcode *"
+                value={newItemVariant.barcode}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, barcode: e.target.value })}
+                placeholder="9-digit barcode"
+                required
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setNewItemVariant({ ...newItemVariant, barcode: generateRandomBarcode() })}
+                        edge="end"
+                        title="Generate new barcode"
+                      >
+                        <RefreshIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Grid>
+
+            {/* Expire Date */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Expire Date"
+                type="date"
+                value={newItemVariant.expireDate}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, expireDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+
+            {/* Buying Price */}
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Buying Price *"
+                type="number"
+                value={newItemVariant.buyingPrice}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, buyingPrice: e.target.value })}
+                InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+                required
+              />
+            </Grid>
+
+            {/* Selling Price */}
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Selling Price *"
                 type="number"
                 value={newItemVariant.sellingPrice}
                 onChange={(e) => setNewItemVariant({ ...newItemVariant, sellingPrice: e.target.value })}
                 InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
-                placeholder="Optional"
+                required
+              />
+            </Grid>
+
+            {/* Quantity */}
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Quantity *"
+                type="number"
+                value={newItemVariant.quantity}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, quantity: e.target.value })}
+                required
+              />
+            </Grid>
+
+            {/* Description */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Description"
+                value={newItemVariant.description}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, description: e.target.value })}
+                multiline
+                rows={2}
+                placeholder="Optional description..."
               />
             </Grid>
           </Grid>
@@ -2576,8 +2696,12 @@ const Inventory = () => {
           <Button onClick={() => setAddItemVariantDialog(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSaveItemVariant} variant="contained" color="primary">
-            Add Item Variant
+          <Button 
+            onClick={handleSaveItemVariant} 
+            variant="contained" 
+            sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+          >
+            Add Product
           </Button>
         </DialogActions>
       </Dialog>

@@ -255,7 +255,7 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
 // Add stock batch to existing item variant
 server.post('/api/stock-batch/add', (req, res) => {
   const db = getDatabase();
-  const { item_variant_id, buyingPrice, quantity, description } = req.body;
+  const { item_variant_id, buyingPrice, quantity, description, expire_date } = req.body;
 
   if (!item_variant_id || !quantity || !buyingPrice) {
     return res.status(400).json({ error: 'Missing required fields: item_variant_id, quantity, buyingPrice' });
@@ -264,8 +264,8 @@ server.post('/api/stock-batch/add', (req, res) => {
   const transaction = db.transaction(() => {
     // Create new stock batch
     const result = db.prepare(
-      'INSERT INTO stock_batch (item_variant_id, buy_price, initial_qty, remaining_qty, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(item_variant_id, parseFloat(buyingPrice), parseInt(quantity), parseInt(quantity), description || null, getCurrentUTCTimestamp());
+      'INSERT INTO stock_batch (item_variant_id, buy_price, initial_qty, remaining_qty, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(item_variant_id, parseFloat(buyingPrice), parseInt(quantity), parseInt(quantity), description || null, expire_date || null, getCurrentUTCTimestamp());
     return result.lastInsertRowid;
   });
 
