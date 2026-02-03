@@ -71,6 +71,7 @@ import { toast } from 'react-toastify';
 import { fetchCategories, fetchVariants, fetchItemVariants } from '../../store/slices/inventorySlice';
 import api from '../../services/api';
 import SellPriceHistory from '../SellPriceHistory';
+import CategoryManagementMenu from './CategoryManagementMenu';
 // import AddItemWithVariants from './AddItemWithVariants';
 
 const getCategoryIcon = (categoryName) => {
@@ -1481,47 +1482,14 @@ const Inventory = () => {
   const CategoryManagement = () => (
     <Card>
       <CardContent>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box display="flex" flexDirection="column" alignItems="flex-start" gap={2}>
           <Typography variant="h6" fontWeight="bold">
             Category Management
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleAddCategory}
-          >
-            Add Category
-          </Button>
+          <CategoryManagementMenu 
+            categories={categories}
+          />
         </Box>
-
-        {loadingCategories ? (
-          <Box display="flex" justifyContent="center" p={3}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <List>
-            {categories.map((category) => (
-              <React.Fragment key={category.id}>
-                <ListItem>
-                  <ListItemText
-                    primary={
-                      <Typography variant="body1">{category.name}</Typography>
-                    }
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleEditCategory(category)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteCategory(category.id)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-                <Divider />
-              </React.Fragment>
-            ))}
-          </List>
-        )}
       </CardContent>
     </Card>
   );

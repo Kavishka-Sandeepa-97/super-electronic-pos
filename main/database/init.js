@@ -15,7 +15,7 @@ const initializeDatabase = () => {
     return;
   }
 
-  const dbPath = path.join(app.getPath('userData'), 'super-costume.db');
+  const dbPath = path.join(app.getPath('userData'), 'super-glow.db');
   
   try {
     db = new Database(dbPath);
