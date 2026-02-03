@@ -24,6 +24,9 @@ import {
   Alert,
   CircularProgress,
   Snackbar,
+  FormControlLabel,
+  Checkbox,
+  FormGroup,
 } from '@mui/material';
 import {
   Search,
@@ -33,7 +36,16 @@ import {
   Person,
   CheckCircle,
 } from '@mui/icons-material';
-import { fetchCategories, fetchItemVariants, setSelectedCategory, setSearchTerm, filterItems } from '../../store/slices/inventorySlice';
+import {
+  fetchCategories,
+  fetchItemVariants,
+  setSelectedCategory,
+  setSelectedBrand,
+  setSelectedGender,
+  resetFilters,
+  setSearchTerm,
+  filterItems
+} from '../../store/slices/inventorySlice';
 import { addItemToOrder, fetchActiveOrders } from '../../store/slices/orderSlice';
 import { openModal } from '../../store/slices/uiSlice';
 import OrderSummary from './OrderSummary';
@@ -41,6 +53,7 @@ import ActiveOrdersDialog from './ActiveOrdersDialog';
 import BarcodeNotFoundDialog from './BarcodeNotFoundDialog';
 import OrderHistoryDialog from './OrderHistoryDialog';
 import CategoryMenu from './CategoryMenu';
+import BrandMenu from './BrandMenu';
 import { toast } from 'react-toastify';
 
 const POSInterface = () => {
@@ -50,6 +63,8 @@ const POSInterface = () => {
     itemVariants,
     filteredItems,
     selectedCategory,
+    selectedBrand,
+    selectedGender,
     searchTerm,
     loading,
     error
@@ -141,11 +156,15 @@ const POSInterface = () => {
     return () => {
       // Cleanup on unmount or when dependencies change
     };
-  }, [debouncedSearch, selectedCategory, dispatch]);
+  }, [debouncedSearch, selectedCategory, selectedBrand, selectedGender, dispatch]);
 
-  const handleCategoryChange = useCallback((event, newValue) => {
-    dispatch(setSelectedCategory(newValue));
-  }, [dispatch]);
+  const brands = React.useMemo(() => {
+    const brandSet = new Set();
+    (itemVariants || []).forEach(item => {
+      if (item?.brand_name) brandSet.add(item.brand_name);
+    });
+    return Array.from(brandSet).sort((a, b) => a.localeCompare(b));
+  }, [itemVariants]);
 
   const handleAddToOrder = useCallback((itemVariant) => {
     // Ensure the item has a valid selling_price before adding to order
@@ -321,14 +340,91 @@ const POSInterface = () => {
             </Button>
           </Box>
 
-          {/* Category Menu */}
-          <CategoryMenu 
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onCategorySelect={(category) => {
-              dispatch(setSelectedCategory(category?.id || null));
-            }}
-          />
+          {/* Category + Brand + Gender Filters */}
+          <Box sx={{ px: 2, pb: 2, display: 'flex', flexWrap: 'nowrap', gap: 1.5, alignItems: 'center' }}>
+            <CategoryMenu
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onCategorySelect={(category) => {
+                dispatch(setSelectedCategory(category?.id || null));
+              }}
+              containerSx={{ p: 0, borderBottom: 'none' }}
+            />
+            <BrandMenu
+              brands={brands}
+              selectedBrand={selectedBrand}
+              onBrandSelect={(brand) => dispatch(setSelectedBrand(brand))}
+            />
+
+            <FormGroup row sx={{ ml: 0.5, gap: 0.5, alignItems: 'center' }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={selectedGender === 'ALL'}
+                    onChange={() => dispatch(setSelectedGender('ALL'))}
+                    size="small"
+                    sx={{ p: 0.5 }}
+                  />
+                }
+                label="All"
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={selectedGender === 'MEN'}
+                    onChange={() => dispatch(setSelectedGender('MEN'))}
+                    size="small"
+                    sx={{ p: 0.5 }}
+                  />
+                }
+                label="Men"
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={selectedGender === 'WOMEN'}
+                    onChange={() => dispatch(setSelectedGender('WOMEN'))}
+                    size="small"
+                    sx={{ p: 0.5 }}
+                  />
+                }
+                label="Women"
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={selectedGender === 'UNISEX'}
+                    onChange={() => dispatch(setSelectedGender('UNISEX'))}
+                    size="small"
+                    sx={{ p: 0.5 }}
+                  />
+                }
+                label="Unisex"
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+              />
+            </FormGroup>
+
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                dispatch(resetFilters());
+                setSearchInput('');
+              }}
+              sx={{
+                height: 32,
+                borderRadius: 12,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+              }}
+            >
+              Reset Filters
+            </Button>
+          </Box>
 
           {/* Items Grid */}
           <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>

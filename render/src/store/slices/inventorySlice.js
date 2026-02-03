@@ -105,6 +105,8 @@ const inventorySlice = createSlice({
     itemVariants: [],
     filteredItems: [],
     selectedCategory: null, // Changed from 'all' to null
+    selectedBrand: null,
+    selectedGender: 'ALL',
     searchTerm: '',
     loading: false,
     error: null,
@@ -113,28 +115,23 @@ const inventorySlice = createSlice({
   reducers: {
     setSelectedCategory: (state, action) => {
       state.selectedCategory = action.payload;
-      
-      if (!action.payload) {
-        // Show all items
-        state.filteredItems = state.itemVariants;
-      } else {
-        // Find the category and get all its subcategory IDs
-        const category = findCategoryById(state.categories, action.payload);
-        if (category) {
-          const categoryIds = getAllCategoryIds(category);
-          state.filteredItems = state.itemVariants.filter(item =>
-            categoryIds.includes(item.category_id)
-          );
-        } else {
-          // Fallback to name-based filtering (for backward compatibility)
-          state.filteredItems = state.itemVariants.filter(item =>
-            (item.category_name || '').toLowerCase() === (state.selectedCategory || '').toLowerCase()
-          );
-        }
-      }
+      // Category filter is applied in filterItems
+    },
+    setSelectedBrand: (state, action) => {
+      state.selectedBrand = action.payload;
+    },
+    setSelectedGender: (state, action) => {
+      state.selectedGender = action.payload;
     },
     setSearchTerm: (state, action) => {
       state.searchTerm = action.payload;
+    },
+    resetFilters: (state) => {
+      state.selectedCategory = null;
+      state.selectedBrand = null;
+      state.selectedGender = 'ALL';
+      state.searchTerm = '';
+      state.filteredItems = state.itemVariants;
     },
     filterItems: (state) => {
       let filtered = state.itemVariants;
@@ -151,6 +148,22 @@ const inventorySlice = createSlice({
             (item.category_name || '').toLowerCase() === (state.selectedCategory || '').toLowerCase()
           );
         }
+      }
+
+      // Filter by brand
+      if (state.selectedBrand) {
+        const brandLower = (state.selectedBrand || '').toLowerCase();
+        filtered = filtered.filter(item =>
+          (item.brand_name || '').toLowerCase() === brandLower
+        );
+      }
+
+      // Filter by gender
+      if (state.selectedGender && state.selectedGender !== 'ALL') {
+        const genderLower = (state.selectedGender || '').toLowerCase();
+        filtered = filtered.filter(item =>
+          (item.gender || '').toLowerCase() === genderLower
+        );
       }
 
       // Filter by search term (safe checks)
@@ -240,6 +253,9 @@ const inventorySlice = createSlice({
 
 export const {
   setSelectedCategory,
+  setSelectedBrand,
+  setSelectedGender,
+  resetFilters,
   setSearchTerm,
   filterItems,
   clearBarcodeResult,

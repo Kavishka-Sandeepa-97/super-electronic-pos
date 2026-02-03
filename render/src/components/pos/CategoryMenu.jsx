@@ -12,7 +12,7 @@ import {
   Category as CategoryIcon,
 } from '@mui/icons-material';
 
-const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
+const CategoryMenu = ({ categories, selectedCategory, onCategorySelect, containerSx }) => {
   const [mainAnchorEl, setMainAnchorEl] = useState(null);
   
   // Track active path for highlighting parent categories
@@ -65,19 +65,20 @@ const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
   const isInActivePath = (categoryId) => activePath.includes(categoryId);
 
   return (
-    <Box sx={{ p: 2, borderBottom: '2px solid #f0f0f0' }}>
+    <Box sx={{ p: 2, borderBottom: '2px solid #f0f0f0', ...containerSx }}>
       <Button
         onClick={handleMainClick}
         variant="contained"
         endIcon={<ExpandMoreIcon />}
         startIcon={<CategoryIcon />}
+        size="small"
         sx={{
           textTransform: 'uppercase',
           fontWeight: 700,
-          fontSize: '0.875rem',
-          px: 4,
-          height: 40,
-          borderRadius: 15,
+          fontSize: '0.78rem',
+          px: 2.5,
+          height: 32,
+          borderRadius: 12,
           background: '#E53935',
           color: 'white',
           '&:hover': { background: '#C62828' },

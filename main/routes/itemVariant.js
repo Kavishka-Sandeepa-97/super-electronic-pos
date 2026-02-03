@@ -7,7 +7,9 @@ router.get('/', (req, res) => {
   const db = getDatabase();
   try {
     const rows = db.prepare(`
-      SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name,
+      SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
+             v.variant_name, c.name as category_name,
+             b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price,
              sph.selling_price,
@@ -16,6 +18,7 @@ router.get('/', (req, res) => {
       LEFT JOIN item_variant iv ON i.id = iv.item_id
       LEFT JOIN variant v ON iv.variant_id = v.id
       JOIN category c ON i.category_id = c.id
+      LEFT JOIN brand b ON i.brand_id = b.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
         SELECT item_variant_id, selling_price,
@@ -38,13 +41,16 @@ router.get('/:id', (req, res) => {
 
   try {
     const row = db.prepare(`
-      SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name,
+      SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
+             v.variant_name, c.name as category_name,
+             b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id
       JOIN category c ON i.category_id = c.id
+      LEFT JOIN brand b ON i.brand_id = b.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
         SELECT item_variant_id, selling_price,
@@ -204,11 +210,14 @@ router.get('/barcode/:barcode', (req, res) => {
 
   try {
     const row = db.prepare(`
-      SELECT iv.*, i.name as item_name, i.image, v.variant_name, c.name as category_name
+      SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
+             v.variant_name, c.name as category_name,
+             b.id as brand_id, b.brand_name as brand_name
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id
       JOIN category c ON i.category_id = c.id
+      LEFT JOIN brand b ON i.brand_id = b.id
       WHERE iv.barcode = ?
     `).get(barcode);
 
