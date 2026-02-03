@@ -252,8 +252,8 @@ const OrderSummary = () => {
     try {
       // Print bill with proper store info
       const storeInfo = {
-        name: 'BINTHANNA RESTAURANT',
-        address: 'Kekirihena Mahaoya',
+        name: 'Super Glow',
+        address: 'Ganemulla',
         phone: '076 670 2231',
         receiptFooter: 'Thank you for dining with us!',
         currencySymbol: 'Rs'

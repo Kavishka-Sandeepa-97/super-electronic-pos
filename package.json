@@ -1,5 +1,5 @@
 {
-  "name": "electron-pos",
+  "name": "super-glow-pos",
   "version": "1.0.0",
   "main": "main/main.js",
   "scripts": {
@@ -26,8 +26,8 @@
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId": "com.binthanna.pos",
-    "productName": "Binthanna POS",
+    "appId": "com.super-glow.pos",
+    "productName": "Super Glow POS",
     "files": [
       "main/**/*",
       "render/dist/**/*"
@@ -58,7 +58,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Binthanna POS"
+      "shortcutName": "Super Glow POS"
     },
     "asarUnpack": [
       "**/node_modules/sqlite3/**/*"

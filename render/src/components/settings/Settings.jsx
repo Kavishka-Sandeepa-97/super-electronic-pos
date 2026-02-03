@@ -81,10 +81,10 @@ const Settings = () => {
   });
 
   const [storeSettings, setStoreSettings] = useState({
-    storeName: 'Binthanna Restaurant',
+    storeName: 'Super Glow',
     address: '123 Main Street, City, Country',
     phone: '+1 234 567 8900',
-    email: 'info@binthanna.com',
+    email: 'info@superglow.com',
     taxRate: '10',
     currency: 'USD',
     receiptFooter: 'Thank you for dining with us!',

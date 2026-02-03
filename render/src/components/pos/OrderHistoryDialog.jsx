@@ -206,7 +206,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
       };
 
       const storeInfo = {
-        name: 'BINTHANNA RESTAURANT',
+        name: 'Super Glow',
         address: '123 Restaurant Street, City',
         phone: '+1 234 567 8900',
         taxRate: 0.10,

@@ -140,7 +140,7 @@ const LoginPage = () => {
             >
               <Restaurant sx={{ fontSize: 50, mb: 1 }} />
               <Typography variant="h4" fontWeight="bold" gutterBottom>
-                BINTHANNA
+                Super Glow
               </Typography>
               <Typography variant="body1" sx={{ opacity: 0.9 }}>
                 Restaurant POS System
@@ -251,7 +251,7 @@ const LoginPage = () => {
               {/* Footer */}
               <Box sx={{ mt: 3, textAlign: 'center' }}>
                 <Typography variant="body2" color="text.secondary">
-                  © 2025 Binthanna Restaurant. All rights reserved.
+                  © 2025 Super Glow. All rights reserved.
                 </Typography>
               </Box>
             </CardContent>
