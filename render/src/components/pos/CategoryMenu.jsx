@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -14,8 +14,17 @@ import {
 
 const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
   const [mainAnchorEl, setMainAnchorEl] = useState(null);
-  const [subMenuAnchors, setSubMenuAnchors] = useState({});
-  const hoverTimerRef = useRef({});
+  
+  // Track active path for highlighting parent categories
+  const [activePath, setActivePath] = useState([]);
+  
+  // Level 1 submenu (main category -> subcategories)
+  const [level1Anchor, setLevel1Anchor] = useState(null);
+  const [level1Category, setLevel1Category] = useState(null);
+  
+  // Level 2 submenu (subcategory -> deep subcategories)
+  const [level2Anchor, setLevel2Anchor] = useState(null);
+  const [level2Category, setLevel2Category] = useState(null);
 
   const handleMainClick = (event) => {
     setMainAnchorEl(event.currentTarget);
@@ -23,10 +32,11 @@ const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
 
   const handleMainClose = () => {
     setMainAnchorEl(null);
-    setSubMenuAnchors({});
-    // Clear all timers
-    Object.values(hoverTimerRef.current).forEach(timer => clearTimeout(timer));
-    hoverTimerRef.current = {};
+    setLevel1Anchor(null);
+    setLevel1Category(null);
+    setLevel2Anchor(null);
+    setLevel2Category(null);
+    setActivePath([]);
   };
 
   const handleCategorySelect = (category) => {
@@ -34,206 +44,28 @@ const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
     handleMainClose();
   };
 
-  const handleSubMenuOpen = (event, categoryId) => {
-    // Clear any existing timer for this category
-    if (hoverTimerRef.current[categoryId]) {
-      clearTimeout(hoverTimerRef.current[categoryId]);
-    }
+  // Open level 1 submenu
+  const openLevel1 = useCallback((event, category) => {
+    // Close level 2 first
+    setLevel2Anchor(null);
+    setLevel2Category(null);
     
-    setSubMenuAnchors(prev => ({
-      ...prev,
-      [categoryId]: event.currentTarget
-    }));
-  };
+    setLevel1Anchor(event.currentTarget);
+    setLevel1Category(category);
+    setActivePath([category.id]);
+  }, []);
 
-  const handleSubMenuClose = (categoryId) => {
-    // Delay closing to prevent blinking
-    hoverTimerRef.current[categoryId] = setTimeout(() => {
-      setSubMenuAnchors(prev => {
-        const newState = { ...prev };
-        delete newState[categoryId];
-        return newState;
-      });
-    }, 300);
-  };
+  // Open level 2 submenu
+  const openLevel2 = useCallback((event, category) => {
+    setLevel2Anchor(event.currentTarget);
+    setLevel2Category(category);
+    setActivePath(prev => [prev[0], category.id]);
+  }, []);
 
-  const cancelClose = (categoryId) => {
-    if (hoverTimerRef.current[categoryId]) {
-      clearTimeout(hoverTimerRef.current[categoryId]);
-      delete hoverTimerRef.current[categoryId];
-    }
-  };
-
-  const renderMenuItem = (category) => {
-    const hasSubcategories = category.subcategories && category.subcategories.length > 0;
-
-    return (
-      <div key={category.id}>
-        <MenuItem
-          onClick={(e) => {
-            if (hasSubcategories) {
-              handleSubMenuOpen(e, category.id);
-            } else {
-              handleCategorySelect(category);
-            }
-          }}
-          onMouseEnter={(e) => {
-            if (hasSubcategories) {
-              cancelClose(category.id);
-              handleSubMenuOpen(e, category.id);
-            }
-          }}
-          onMouseLeave={() => {
-            if (hasSubcategories) {
-              handleSubMenuClose(category.id);
-            }
-          }}
-          selected={selectedCategory === category.id}
-          sx={{
-            '&:hover': {
-              backgroundColor: '#f5f5f5',
-            },
-            minWidth: 200,
-          }}
-        >
-          <ListItemText 
-            primary={category.name}
-            primaryTypographyProps={{
-              fontWeight: selectedCategory === category.id ? 600 : 400,
-            }}
-          />
-          {hasSubcategories && <ChevronRightIcon sx={{ ml: 2 }} />}
-        </MenuItem>
-
-        {hasSubcategories && (
-          <Menu
-            anchorEl={subMenuAnchors[category.id]}
-            open={Boolean(subMenuAnchors[category.id])}
-            onClose={() => handleSubMenuClose(category.id)}
-            anchorOrigin={{
-              vertical: 'top',
-              horizontal: 'right',
-            }}
-            transformOrigin={{
-              vertical: 'top',
-              horizontal: 'left',
-            }}
-            MenuListProps={{
-              onMouseEnter: () => cancelClose(category.id),
-              onMouseLeave: () => handleSubMenuClose(category.id),
-            }}
-            sx={{
-              pointerEvents: 'none',
-              '& .MuiPaper-root': {
-                pointerEvents: 'auto',
-                maxHeight: 500,
-                overflowY: 'auto',
-                minWidth: 250,
-              },
-            }}
-          >
-            {category.subcategories.map((subcat) => {
-              const hasDeepSubs = subcat.subcategories && subcat.subcategories.length > 0;
-              
-              return (
-                <div key={subcat.id}>
-                  <MenuItem
-                    onClick={(e) => {
-                      if (hasDeepSubs) {
-                        handleSubMenuOpen(e, subcat.id);
-                      } else {
-                        handleCategorySelect(subcat);
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      if (hasDeepSubs) {
-                        cancelClose(subcat.id);
-                        handleSubMenuOpen(e, subcat.id);
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      if (hasDeepSubs) {
-                        handleSubMenuClose(subcat.id);
-                      }
-                    }}
-                    selected={selectedCategory === subcat.id}
-                    sx={{
-                      '&:hover': {
-                        backgroundColor: '#f5f5f5',
-                      },
-                    }}
-                  >
-                    <ListItemText 
-                      primary={subcat.name}
-                      primaryTypographyProps={{
-                        fontWeight: selectedCategory === subcat.id ? 600 : 400,
-                      }}
-                    />
-                    {hasDeepSubs && <ChevronRightIcon sx={{ ml: 2 }} />}
-                  </MenuItem>
-
-                  {hasDeepSubs && (
-                    <Menu
-                      anchorEl={subMenuAnchors[subcat.id]}
-                      open={Boolean(subMenuAnchors[subcat.id])}
-                      onClose={() => handleSubMenuClose(subcat.id)}
-                      anchorOrigin={{
-                        vertical: 'top',
-                        horizontal: 'right',
-                      }}
-                      transformOrigin={{
-                        vertical: 'top',
-                        horizontal: 'left',
-                      }}
-                      MenuListProps={{
-                        onMouseEnter: () => cancelClose(subcat.id),
-                        onMouseLeave: () => handleSubMenuClose(subcat.id),
-                      }}
-                      sx={{
-                        pointerEvents: 'none',
-                        '& .MuiPaper-root': {
-                          pointerEvents: 'auto',
-                          maxHeight: 500,
-                          overflowY: 'auto',
-                          minWidth: 220,
-                        },
-                      }}
-                    >
-                      {subcat.subcategories.map((deepSubcat) => (
-                        <MenuItem
-                          key={deepSubcat.id}
-                          onClick={() => handleCategorySelect(deepSubcat)}
-                          selected={selectedCategory === deepSubcat.id}
-                          sx={{
-                            '&:hover': {
-                              backgroundColor: '#f5f5f5',
-                            },
-                          }}
-                        >
-                          <ListItemText 
-                            primary={deepSubcat.name}
-                            primaryTypographyProps={{
-                              fontWeight: selectedCategory === deepSubcat.id ? 600 : 400,
-                            }}
-                          />
-                        </MenuItem>
-                      ))}
-                    </Menu>
-                  )}
-                </div>
-              );
-            })}
-          </Menu>
-        )}
-      </div>
-    );
-  };
+  const isInActivePath = (categoryId) => activePath.includes(categoryId);
 
   return (
-    <Box sx={{ 
-      p: 2,
-      borderBottom: '2px solid #f0f0f0',
-    }}>
+    <Box sx={{ p: 2, borderBottom: '2px solid #f0f0f0' }}>
       <Button
         onClick={handleMainClick}
         variant="contained"
@@ -242,49 +74,134 @@ const CategoryMenu = ({ categories, selectedCategory, onCategorySelect }) => {
         sx={{
           textTransform: 'uppercase',
           fontWeight: 700,
-          fontSize: '1rem',
+          fontSize: '0.875rem',
           px: 4,
-          py: 1.5,
-          borderRadius: 2,
+          height: 40,
+          borderRadius: 15,
           background: '#E53935',
           color: 'white',
-          '&:hover': {
-            background: '#C62828',
-          },
+          '&:hover': { background: '#C62828' },
         }}
       >
         Category
       </Button>
 
+      {/* Main Menu */}
       <Menu
         anchorEl={mainAnchorEl}
         open={Boolean(mainAnchorEl)}
         onClose={handleMainClose}
-        MenuListProps={{
-          'aria-labelledby': 'category-button',
-        }}
-        sx={{
-          '& .MuiPaper-root': {
-            minWidth: 220,
-            maxHeight: 500,
-            overflowY: 'auto',
-          },
-        }}
+        sx={{ '& .MuiPaper-root': { minWidth: 220, maxHeight: 500 } }}
       >
         <MenuItem
           onClick={() => handleCategorySelect(null)}
           selected={selectedCategory === null}
-          sx={{
-            fontWeight: selectedCategory === null ? 700 : 400,
-            '&:hover': {
-              backgroundColor: '#f5f5f5',
-            },
-          }}
+          sx={{ '&:hover': { backgroundColor: '#f5f5f5' } }}
         >
           <ListItemText primary="All Categories" />
         </MenuItem>
         
-        {categories.map((category) => renderMenuItem(category))}
+        {categories.map((category) => {
+          const hasSubs = category.subcategories?.length > 0;
+          const isActive = isInActivePath(category.id);
+          
+          return (
+            <MenuItem
+              key={category.id}
+              onClick={(e) => hasSubs ? openLevel1(e, category) : handleCategorySelect(category)}
+              onMouseEnter={(e) => hasSubs && openLevel1(e, category)}
+              selected={selectedCategory === category.id}
+              sx={{
+                backgroundColor: isActive ? '#ffebee' : 'transparent',
+                color: isActive ? '#E53935' : 'inherit',
+                fontWeight: isActive ? 600 : 400,
+                '&:hover': { backgroundColor: isActive ? '#ffcdd2' : '#f5f5f5' },
+              }}
+            >
+              <ListItemText 
+                primary={category.name}
+                primaryTypographyProps={{ fontWeight: isActive ? 600 : 400 }}
+              />
+              {hasSubs && <ChevronRightIcon sx={{ ml: 2, color: isActive ? '#E53935' : 'inherit' }} />}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+
+      {/* Level 1 Submenu */}
+      <Menu
+        anchorEl={level1Anchor}
+        open={Boolean(level1Anchor)}
+        onClose={() => {}}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        hideBackdrop
+        disableAutoFocus
+        disableEnforceFocus
+        sx={{
+          pointerEvents: 'none',
+          '& .MuiPaper-root': { 
+            pointerEvents: 'auto',
+            minWidth: 250, 
+            maxHeight: 500 
+          },
+        }}
+      >
+        {level1Category?.subcategories?.map((subcat) => {
+          const hasDeepSubs = subcat.subcategories?.length > 0;
+          const isActive = isInActivePath(subcat.id);
+          
+          return (
+            <MenuItem
+              key={subcat.id}
+              onClick={(e) => hasDeepSubs ? openLevel2(e, subcat) : handleCategorySelect(subcat)}
+              onMouseEnter={(e) => hasDeepSubs && openLevel2(e, subcat)}
+              selected={selectedCategory === subcat.id}
+              sx={{
+                backgroundColor: isActive ? '#ffebee' : 'transparent',
+                color: isActive ? '#E53935' : 'inherit',
+                '&:hover': { backgroundColor: isActive ? '#ffcdd2' : '#f5f5f5' },
+              }}
+            >
+              <ListItemText 
+                primary={subcat.name}
+                primaryTypographyProps={{ fontWeight: isActive ? 600 : 400 }}
+              />
+              {hasDeepSubs && <ChevronRightIcon sx={{ ml: 2, color: isActive ? '#E53935' : 'inherit' }} />}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+
+      {/* Level 2 Submenu */}
+      <Menu
+        anchorEl={level2Anchor}
+        open={Boolean(level2Anchor)}
+        onClose={() => {}}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        hideBackdrop
+        disableAutoFocus
+        disableEnforceFocus
+        sx={{
+          pointerEvents: 'none',
+          '& .MuiPaper-root': { 
+            pointerEvents: 'auto',
+            minWidth: 220, 
+            maxHeight: 500 
+          },
+        }}
+      >
+        {level2Category?.subcategories?.map((deepSubcat) => (
+          <MenuItem
+            key={deepSubcat.id}
+            onClick={() => handleCategorySelect(deepSubcat)}
+            selected={selectedCategory === deepSubcat.id}
+            sx={{ '&:hover': { backgroundColor: '#f5f5f5' } }}
+          >
+            <ListItemText primary={deepSubcat.name} />
+          </MenuItem>
+        ))}
       </Menu>
     </Box>
   );
