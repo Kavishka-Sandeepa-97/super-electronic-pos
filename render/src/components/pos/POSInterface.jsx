@@ -15,8 +15,6 @@ import {
   TextField,
   InputAdornment,
   IconButton,
-  Tabs,
-  Tab,
   Badge,
   Fab,
   Dialog,
@@ -31,11 +29,7 @@ import {
   Search,
   Add,
   ShoppingCart,
-  Cake,
-  Fastfood,
-  SmokeFree,
   Category,
-  Restaurant,
   Person,
   CheckCircle,
 } from '@mui/icons-material';
@@ -46,35 +40,8 @@ import OrderSummary from './OrderSummary';
 import ActiveOrdersDialog from './ActiveOrdersDialog';
 import BarcodeNotFoundDialog from './BarcodeNotFoundDialog';
 import OrderHistoryDialog from './OrderHistoryDialog';
+import CategoryMenu from './CategoryMenu';
 import { toast } from 'react-toastify';
-
-const categoryIcons = {
-  'desserts': <Cake />,
-  'snacks': <Fastfood />,
-  'tobacco': <SmokeFree />,
-  'other': <Category />,
-};
-
-// Function to get icon regardless of case
-const getCategoryIcon = (categoryName) => {
-  if (!categoryName) return <Category />;
-  const lowerCaseName = categoryName.toLowerCase();
-  return categoryIcons[lowerCaseName] || <Category />;
-};
-
-const categoryColors = {
-  'desserts': '#F7DC6F',
-  'snacks': '#BB8FCE',
-  'tobacco': '#85929E',
-  'other': '#58D68D',
-};
-
-// Function to get color regardless of case
-const getCategoryColor = (categoryName) => {
-  if (!categoryName) return '#666';
-  const lowerCaseName = categoryName.toLowerCase();
-  return categoryColors[lowerCaseName] || '#666';
-};
 
 const POSInterface = () => {
   const dispatch = useDispatch();
@@ -206,16 +173,6 @@ const POSInterface = () => {
     }
     return `Rs. ${numPrice.toFixed(2)}`;
   };
-
-  // Prepare categories for tabs
-  const allCategories = [
-    { id: 'all', name: 'All', icon: <Category /> },
-    ...(categories || []).map(cat => ({
-      id: (cat?.name || '').toLowerCase(),
-      name: cat?.name || 'Unknown',
-      icon: getCategoryIcon(cat?.name)
-    }))
-  ];
 
   if (loading && !itemVariants.length) {
     return (
@@ -364,41 +321,14 @@ const POSInterface = () => {
             </Button>
           </Box>
 
-          {/* Category Tabs */}
-          <Box sx={{ px: 2 }}>
-            <Tabs
-              value={selectedCategory}
-              onChange={handleCategoryChange}
-              variant="scrollable"
-              scrollButtons="auto"
-              sx={{
-                '& .MuiTab-root': {
-                  minHeight: 40,
-                  borderRadius: 20,
-                  margin: 0.5,
-                  '&.Mui-selected': {
-                    background: 'linear-gradient(45deg, #667eea, #764ba2)',
-                    color: 'white',
-                  },
-                },
-              }}
-            >
-              {allCategories.map((category) => (
-                <Tab
-                  key={category.id}
-                  value={category.id}
-                  icon={category.icon}
-                  label={category.name}
-                  iconPosition="start"
-                  sx={{
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    color: getCategoryColor(category.name),
-                  }}
-                />
-              ))}
-            </Tabs>
-          </Box>
+          {/* Category Menu */}
+          <CategoryMenu 
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategorySelect={(category) => {
+              dispatch(setSelectedCategory(category?.id || null));
+            }}
+          />
 
           {/* Items Grid */}
           <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
@@ -440,7 +370,7 @@ const POSInterface = () => {
                           component="div"
                           sx={{
                             height: 120,
-                            background: `linear-gradient(45deg, ${getCategoryColor(item.category_name) || '#667eea'}, ${getCategoryColor(item.category_name) || '#764ba2'})`,
+                            background: 'linear-gradient(45deg, #667eea, #764ba2)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -448,7 +378,7 @@ const POSInterface = () => {
                             fontSize: '2rem',
                           }}
                         >
-                          {getCategoryIcon(item.category_name) || <LocalDining />}
+                          <Category />
                         </CardMedia>
                       )}
 

@@ -254,13 +254,310 @@ const insertDefaultData = () => {
     db.prepare('INSERT INTO staff (name, username, pin, role) VALUES (?, ?, ?, ?)').run('Admin', 'admin', '1234', 'admin');
   }
 
-  // Insert default categories
-  const defaultCategories = ['Electronics', 'Clothing', 'Accessories', 'Desserts', 'Snacks', 'Tobacco', 'Other'];
-  const insertCategory = db.prepare('INSERT OR IGNORE INTO category (name) VALUES (?)');
+  // Insert default categories with hierarchical structure
+  const insertCategoryStmt = db.prepare('INSERT OR IGNORE INTO category (name, parent_id) VALUES (?, ?)');
+  const getCategoryIdStmt = db.prepare('SELECT id FROM category WHERE name = ?');
   
-  defaultCategories.forEach(categoryName => {
-    insertCategory.run(categoryName);
+  // Main Categories
+  const mainCategories = [
+    'MAKE-UP',
+    'HAIR CARE',
+    'SKIN CARE',
+    'ACCESSORIES',
+    'FRAGRANCE',
+    'PERSONAL CARE',
+    'SALON EQUIPMENT',
+    'APPLIANCES'
+  ];
+  
+  mainCategories.forEach(cat => {
+    insertCategoryStmt.run(cat, null);
   });
+  
+  // MAKE-UP subcategories and sub-subcategories
+  const makeupId = getCategoryIdStmt.get('MAKE-UP')?.id;
+  if (makeupId) {
+    insertCategoryStmt.run('Face', makeupId);
+    insertCategoryStmt.run('Lips', makeupId);
+    insertCategoryStmt.run('Eyes', makeupId);
+    insertCategoryStmt.run('Nails', makeupId);
+    insertCategoryStmt.run('Makeup Accessories', makeupId);
+    
+    // Face subcategories
+    const faceId = getCategoryIdStmt.get('Face')?.id;
+    if (faceId) {
+      const faceItems = [
+        'Face Concealer', 'Face Foundation BB & CC Cream', 'Face Compact', 'Face Primer',
+        'Face Setting Spray & Fixer', 'Loose Powder', 'Foundation', 'Powder Bronzer',
+        'Powder Blush', 'Face Contour & Highlight & Illuminator'
+      ];
+      faceItems.forEach(item => insertCategoryStmt.run(item, faceId));
+    }
+    
+    // Lips subcategories
+    const lipsId = getCategoryIdStmt.get('Lips')?.id;
+    if (lipsId) {
+      const lipsItems = ['Lipstick', 'Liquid Lipstick', 'Lip Contours & Liner', 'Lip Gloss', 'Lip Primer'];
+      lipsItems.forEach(item => insertCategoryStmt.run(item, lipsId));
+    }
+    
+    // Eyes subcategories
+    const eyesId = getCategoryIdStmt.get('Eyes')?.id;
+    if (eyesId) {
+      const eyesItems = [
+        'Eye Primer', 'Under Eye Concealer', 'Eyeshadow', 'Eyeliner', 'Kajal & Khls',
+        'Mascara', 'Eyebrow', 'Liquid eyeshadow', 'Liquid Eyeliner Pencil',
+        'Liquid Eyeliner', 'Eyeshadow Platte'
+      ];
+      eyesItems.forEach(item => insertCategoryStmt.run(item, eyesId));
+    }
+    
+    // Nails subcategories
+    const nailsId = getCategoryIdStmt.get('Nails')?.id;
+    if (nailsId) {
+      const nailsItems = [
+        'Nail Polish', 'Gel Nail Polish', 'Top & Base Coat', 'Nail Polish Remover',
+        'Nail Treatments', 'French Manicure Nail Polish'
+      ];
+      nailsItems.forEach(item => insertCategoryStmt.run(item, nailsId));
+    }
+    
+    // Makeup Accessories subcategories
+    const makeupAccId = getCategoryIdStmt.get('Makeup Accessories')?.id;
+    if (makeupAccId) {
+      const makeupAccItems = ['Makeup Kit', 'Makeup Remover & Wipes', 'Make up tools'];
+      makeupAccItems.forEach(item => insertCategoryStmt.run(item, makeupAccId));
+    }
+  }
+  
+  // HAIR CARE subcategories
+  const hairCareId = getCategoryIdStmt.get('HAIR CARE')?.id;
+  if (hairCareId) {
+    insertCategoryStmt.run('Hair color', hairCareId);
+    insertCategoryStmt.run('Shampoo & Conditioner', hairCareId);
+    insertCategoryStmt.run('Styling', hairCareId);
+    insertCategoryStmt.run('Nourishment', hairCareId);
+    insertCategoryStmt.run('Hair Style', hairCareId);
+    
+    // Hair color subcategories
+    const hairColorId = getCategoryIdStmt.get('Hair color')?.id;
+    if (hairColorId) {
+      insertCategoryStmt.run('Hair Coloring', hairColorId);
+      insertCategoryStmt.run('Others', hairColorId);
+    }
+    
+    // Shampoo & Conditioner subcategories
+    const shampooId = getCategoryIdStmt.get('Shampoo & Conditioner')?.id;
+    if (shampooId) {
+      const shampooItems = ['Shampoo', 'Conditioner', 'Dry Shampoo'];
+      shampooItems.forEach(item => insertCategoryStmt.run(item, shampooId));
+    }
+    
+    // Styling subcategories
+    const stylingId = getCategoryIdStmt.get('Styling')?.id;
+    if (stylingId) {
+      const stylingItems = [
+        'Hair Spray & Mousse',
+        'Leave-In ,Cream ,Gel & Wax',
+        'Hair Fiber & Volume powder'
+      ];
+      stylingItems.forEach(item => insertCategoryStmt.run(item, stylingId));
+    }
+    
+    // Nourishment subcategories
+    const nourishmentId = getCategoryIdStmt.get('Nourishment')?.id;
+    if (nourishmentId) {
+      const nourishmentItems = ['Hair Oil', 'Hair Serum', 'Hair Treatment - Spa & Masque'];
+      nourishmentItems.forEach(item => insertCategoryStmt.run(item, nourishmentId));
+    }
+  }
+  
+  // SKIN CARE subcategories
+  const skinCareId = getCategoryIdStmt.get('SKIN CARE')?.id;
+  if (skinCareId) {
+    insertCategoryStmt.run('Face Care', skinCareId);
+    insertCategoryStmt.run('Eye Care', skinCareId);
+    insertCategoryStmt.run('Lip Treatment', skinCareId);
+    insertCategoryStmt.run('Body Care', skinCareId);
+    insertCategoryStmt.run('Hand & Foot Care', skinCareId);
+    insertCategoryStmt.run('Aromatherapy', skinCareId);
+    insertCategoryStmt.run('Baby Care', skinCareId);
+    insertCategoryStmt.run("men's face wash", skinCareId);
+    
+    // Face Care subcategories
+    const faceCareId = getCategoryIdStmt.get('Face Care')?.id;
+    if (faceCareId) {
+      const faceCareItems = [
+        'Face Wash', 'Face Cleanser', 'Face Scrub & Exfoliator', 'Skin Toner',
+        'Serum & Facial Oil', 'Face Pack, Mask, Peels', 'Face Cream - Moisturizers',
+        'Bleacher', 'Suppliment & Capsule', 'Facial Kit', 'Sun Cream'
+      ];
+      faceCareItems.forEach(item => insertCategoryStmt.run(item, faceCareId));
+    }
+    
+    // Eye Care subcategories
+    const eyeCareId = getCategoryIdStmt.get('Eye Care')?.id;
+    if (eyeCareId) {
+      insertCategoryStmt.run('Eye Serum', eyeCareId);
+      insertCategoryStmt.run('Eye Cream & Gel', eyeCareId);
+    }
+    
+    // Lip Treatment subcategories
+    const lipTreatmentId = getCategoryIdStmt.get('Lip Treatment')?.id;
+    if (lipTreatmentId) {
+      insertCategoryStmt.run('Lip Secrub', lipTreatmentId);
+      insertCategoryStmt.run('Lip Balm & Care', lipTreatmentId);
+    }
+    
+    // Body Care subcategories
+    const bodyCareId = getCategoryIdStmt.get('Body Care')?.id;
+    if (bodyCareId) {
+      const bodyCareItems = [
+        'Body Soap', 'Bath Salt', 'Body Scrub & Exforliants',
+        'Body Lotion & Body Cream, Body Butter', 'Body & Massage Oil & Lotion',
+        'Body Talc', 'Body Wash & Shower Gel', 'Hair Removal'
+      ];
+      bodyCareItems.forEach(item => insertCategoryStmt.run(item, bodyCareId));
+    }
+    
+    // Hand & Foot Care subcategories
+    const handFootId = getCategoryIdStmt.get('Hand & Foot Care')?.id;
+    if (handFootId) {
+      const handFootItems = ['Hand Wash & Soap', 'Hand Sanitizer', 'Hand Cream', 'Foot Care'];
+      handFootItems.forEach(item => insertCategoryStmt.run(item, handFootId));
+    }
+    
+    // Aromatherapy subcategories
+    const aromaId = getCategoryIdStmt.get('Aromatherapy')?.id;
+    if (aromaId) {
+      insertCategoryStmt.run('Essential Oil', aromaId);
+    }
+    
+    // Baby Care subcategories
+    const babyCareId = getCategoryIdStmt.get('Baby Care')?.id;
+    if (babyCareId) {
+      insertCategoryStmt.run('Baby Need All', babyCareId);
+    }
+  }
+  
+  // ACCESSORIES subcategories
+  const accessoriesId = getCategoryIdStmt.get('ACCESSORIES')?.id;
+  if (accessoriesId) {
+    insertCategoryStmt.run('Hair Accessories', accessoriesId);
+    insertCategoryStmt.run('Bath Accessories', accessoriesId);
+    insertCategoryStmt.run('Eye Accessories', accessoriesId);
+    insertCategoryStmt.run('Nail Accessories', accessoriesId);
+    insertCategoryStmt.run('Tools, Brushes & Accessories', accessoriesId);
+    
+    // Hair Accessories subcategories
+    const hairAccId = getCategoryIdStmt.get('Hair Accessories')?.id;
+    if (hairAccId) {
+      insertCategoryStmt.run('Comb & Brusher', hairAccId);
+      insertCategoryStmt.run('Hair Other Accessories', hairAccId);
+    }
+    
+    // Bath Accessories subcategories
+    const bathAccId = getCategoryIdStmt.get('Bath Accessories')?.id;
+    if (bathAccId) {
+      const bathAccItems = ['Loofah', 'Scrubber', 'Bath Set & More'];
+      bathAccItems.forEach(item => insertCategoryStmt.run(item, bathAccId));
+    }
+    
+    // Eye Accessories subcategories
+    const eyeAccId = getCategoryIdStmt.get('Eye Accessories')?.id;
+    if (eyeAccId) {
+      insertCategoryStmt.run('False Eyelasher', eyeAccId);
+      insertCategoryStmt.run('Contact Lenses', eyeAccId);
+    }
+    
+    // Nail Accessories subcategories
+    const nailAccId = getCategoryIdStmt.get('Nail Accessories')?.id;
+    if (nailAccId) {
+      const nailAccItems = ['Manicre & Pedicure Kits', 'Artificial Nails', 'Nail Care'];
+      nailAccItems.forEach(item => insertCategoryStmt.run(item, nailAccId));
+    }
+    
+    // Tools, Brushes & Accessories subcategories
+    const toolsId = getCategoryIdStmt.get('Tools, Brushes & Accessories')?.id;
+    if (toolsId) {
+      const toolsItems = [
+        'Sponges & Applicators', 'Face Brush', 'Eye Brush', 'Lip Brush',
+        'Tweezers & Eye brow tools', 'Eye Lash Curlers', 'sharpener', 'Mirror',
+        'Makeup Brush Cleaner', 'Makeup Brush', 'Makeup Box, Cosmetic Pouch'
+      ];
+      toolsItems.forEach(item => insertCategoryStmt.run(item, toolsId));
+    }
+  }
+  
+  // FRAGRANCE subcategories
+  const fragranceId = getCategoryIdStmt.get('FRAGRANCE')?.id;
+  if (fragranceId) {
+    const fragranceItems = ['Perfume', 'Deodorant & roll-on', 'Talc', 'Body Mist'];
+    fragranceItems.forEach(item => insertCategoryStmt.run(item, fragranceId));
+  }
+  
+  // PERSONAL CARE subcategories
+  const personalCareId = getCategoryIdStmt.get('PERSONAL CARE')?.id;
+  if (personalCareId) {
+    insertCategoryStmt.run('Dental care', personalCareId);
+    insertCategoryStmt.run('Home & Health care', personalCareId);
+    insertCategoryStmt.run('FACE STEAMERS', personalCareId);
+  }
+  
+  // SALON EQUIPMENT subcategories
+  const salonEquipId = getCategoryIdStmt.get('SALON EQUIPMENT')?.id;
+  if (salonEquipId) {
+    insertCategoryStmt.run('Clippers', salonEquipId);
+  }
+  
+  // APPLIANCES subcategories
+  const appliancesId = getCategoryIdStmt.get('APPLIANCES')?.id;
+  if (appliancesId) {
+    insertCategoryStmt.run('Hair Styling Tools', appliancesId);
+    insertCategoryStmt.run('Hair Removal Tools', appliancesId);
+    insertCategoryStmt.run('Shaving Tools', appliancesId);
+    insertCategoryStmt.run('Face & Skin Tools', appliancesId);
+    insertCategoryStmt.run('Massage Tools', appliancesId);
+    insertCategoryStmt.run('Foot Care', appliancesId);
+    
+    // Hair Styling Tools subcategories
+    const hairStylingId = getCategoryIdStmt.get('Hair Styling Tools')?.id;
+    if (hairStylingId) {
+      const hairStylingItems = [
+        'Hair Dryers', 'Hair Straighteners', 'Hair Curling Iron/Stylers', 'Multi Stylers'
+      ];
+      hairStylingItems.forEach(item => insertCategoryStmt.run(item, hairStylingId));
+    }
+    
+    // Hair Removal Tools subcategories
+    const hairRemovalId = getCategoryIdStmt.get('Hair Removal Tools')?.id;
+    if (hairRemovalId) {
+      const hairRemovalItems = ['Epilators', 'Body Groomers', 'Bikini Trimmers'];
+      hairRemovalItems.forEach(item => insertCategoryStmt.run(item, hairRemovalId));
+    }
+    
+    // Shaving Tools subcategories
+    const shavingId = getCategoryIdStmt.get('Shaving Tools')?.id;
+    if (shavingId) {
+      insertCategoryStmt.run('Shavers', shavingId);
+      insertCategoryStmt.run('Trimmers', shavingId);
+    }
+    
+    // Face & Skin Tools subcategories
+    const faceSkinToolsId = getCategoryIdStmt.get('Face & Skin Tools')?.id;
+    if (faceSkinToolsId) {
+      const faceSkinToolsItems = [
+        'Face Epilators', 'Dermarollers', 'Cleansing Brushes', 'Acne Removal'
+      ];
+      faceSkinToolsItems.forEach(item => insertCategoryStmt.run(item, faceSkinToolsId));
+    }
+    
+    // Massage Tools subcategories
+    const massageId = getCategoryIdStmt.get('Massage Tools')?.id;
+    if (massageId) {
+      insertCategoryStmt.run('Massagers', massageId);
+    }
+  }
 };
 
 // Close database connection properly

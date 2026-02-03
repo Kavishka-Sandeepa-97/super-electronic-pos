@@ -2,8 +2,38 @@ const express = require('express');
 const router = express.Router();
 const { getDatabase, getCurrentUTCTimestamp } = require('../database/init');
 
-// Get all categories
+// Get all categories (hierarchical structure)
 router.get('/', (req, res) => {
+  const db = getDatabase();
+  try {
+    const allCategories = db.prepare('SELECT * FROM category ORDER BY name').all();
+    
+    // Build hierarchical structure
+    const categoryMap = {};
+    const rootCategories = [];
+    
+    // First pass: create map of all categories
+    allCategories.forEach(cat => {
+      categoryMap[cat.id] = { ...cat, subcategories: [] };
+    });
+    
+    // Second pass: build hierarchy
+    allCategories.forEach(cat => {
+      if (cat.parent_id === null) {
+        rootCategories.push(categoryMap[cat.id]);
+      } else if (categoryMap[cat.parent_id]) {
+        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+      }
+    });
+    
+    res.json(rootCategories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all categories (flat structure)
+router.get('/flat', (req, res) => {
   const db = getDatabase();
   try {
     const rows = db.prepare('SELECT * FROM category ORDER BY name').all();
@@ -32,17 +62,22 @@ router.get('/:id', (req, res) => {
 // Create new category
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { name } = req.body;
+  const { name, parent_id } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: 'Category name is required' });
   }
   
   try {
-    const result = db.prepare('INSERT INTO category (name, created_at) VALUES (?, ?)').run(name, getCurrentUTCTimestamp());
+    const result = db.prepare('INSERT INTO category (name, parent_id, created_at) VALUES (?, ?, ?)').run(
+      name, 
+      parent_id || null, 
+      getCurrentUTCTimestamp()
+    );
     res.status(201).json({
       id: result.lastInsertRowid,
       name,
+      parent_id: parent_id || null,
       message: 'Category created successfully'
     });
   } catch (err) {
@@ -57,14 +92,18 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { name } = req.body;
+  const { name, parent_id } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: 'Category name is required' });
   }
   
   try {
-    const result = db.prepare('UPDATE category SET name = ? WHERE id = ?').run(name, id);
+    const result = db.prepare('UPDATE category SET name = ?, parent_id = ? WHERE id = ?').run(
+      name, 
+      parent_id || null, 
+      id
+    );
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Category not found' });
     }

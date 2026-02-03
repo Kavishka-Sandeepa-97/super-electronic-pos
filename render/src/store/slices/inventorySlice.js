@@ -1,6 +1,29 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../services/api';
 
+// Helper function to get all category IDs including subcategories
+const getAllCategoryIds = (category) => {
+  const ids = [category.id];
+  if (category.subcategories && category.subcategories.length > 0) {
+    category.subcategories.forEach(subcat => {
+      ids.push(...getAllCategoryIds(subcat));
+    });
+  }
+  return ids;
+};
+
+// Helper function to find category by ID in hierarchical structure
+const findCategoryById = (categories, id) => {
+  for (const cat of categories) {
+    if (cat.id === id) return cat;
+    if (cat.subcategories && cat.subcategories.length > 0) {
+      const found = findCategoryById(cat.subcategories, id);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
 // Async thunks for inventory operations
 export const fetchCategories = createAsyncThunk(
   'inventory/fetchCategories',
@@ -81,7 +104,7 @@ const inventorySlice = createSlice({
     variants: [],
     itemVariants: [],
     filteredItems: [],
-    selectedCategory: 'all',
+    selectedCategory: null, // Changed from 'all' to null
     searchTerm: '',
     loading: false,
     error: null,
@@ -90,11 +113,25 @@ const inventorySlice = createSlice({
   reducers: {
     setSelectedCategory: (state, action) => {
       state.selectedCategory = action.payload;
-      state.filteredItems = state.selectedCategory === 'all'
-        ? state.itemVariants
-        : state.itemVariants.filter(item =>
+      
+      if (!action.payload) {
+        // Show all items
+        state.filteredItems = state.itemVariants;
+      } else {
+        // Find the category and get all its subcategory IDs
+        const category = findCategoryById(state.categories, action.payload);
+        if (category) {
+          const categoryIds = getAllCategoryIds(category);
+          state.filteredItems = state.itemVariants.filter(item =>
+            categoryIds.includes(item.category_id)
+          );
+        } else {
+          // Fallback to name-based filtering (for backward compatibility)
+          state.filteredItems = state.itemVariants.filter(item =>
             (item.category_name || '').toLowerCase() === (state.selectedCategory || '').toLowerCase()
           );
+        }
+      }
     },
     setSearchTerm: (state, action) => {
       state.searchTerm = action.payload;
@@ -103,10 +140,17 @@ const inventorySlice = createSlice({
       let filtered = state.itemVariants;
 
       // Filter by category
-      if (state.selectedCategory !== 'all') {
-        filtered = filtered.filter(item =>
-          (item.category_name || '').toLowerCase() === (state.selectedCategory || '').toLowerCase()
-        );
+      if (state.selectedCategory) {
+        const category = findCategoryById(state.categories, state.selectedCategory);
+        if (category) {
+          const categoryIds = getAllCategoryIds(category);
+          filtered = filtered.filter(item => categoryIds.includes(item.category_id));
+        } else {
+          // Fallback to name-based filtering
+          filtered = filtered.filter(item =>
+            (item.category_name || '').toLowerCase() === (state.selectedCategory || '').toLowerCase()
+          );
+        }
       }
 
       // Filter by search term (safe checks)
