@@ -259,15 +259,24 @@ const OrderSummary = () => {
         currencySymbol: 'Rs'
       };
 
-      // Use HTML/CSS based printing (browser print dialog)
-      const billResult = await htmlPrintService.printBillHTML(completedOrder || {
+      const orderData = completedOrder || {
         ...currentOrder,
         id: Date.now(),
         paymentMethod: paymentMethod || 'cash',
         amountPaid: parseFloat(amountPaid) || currentOrder.total,
         cashier: user?.name || 'System',
         tender_cash: parseFloat(amountPaid) || currentOrder.total
-      }, storeInfo);
+      };
+
+      // Try direct thermal printing first, fall back to browser print
+      const savedPrinter = localStorage.getItem('selectedPrinter');
+      let billResult;
+      
+      if (savedPrinter && window.require) {
+        billResult = await htmlPrintService.printDirectThermal(orderData, storeInfo);
+      } else {
+        billResult = await htmlPrintService.printBillHTML(orderData, storeInfo);
+      }
 
       // Only show success if bill actually printed
       if (billResult.success) {

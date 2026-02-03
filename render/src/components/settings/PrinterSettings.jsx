@@ -19,7 +19,11 @@ import { toast } from 'react-toastify';
 
 const PrinterSettings = () => {
   const [printers, setPrinters] = useState([]);
-  const [selectedPrinter, setSelectedPrinter] = useState('Generic / Text Only');
+  const [selectedPrinter, setSelectedPrinter] = useState(() => {
+    // Load saved printer from localStorage
+    const saved = localStorage.getItem('selectedPrinter');
+    return saved || '';
+  });
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [printerStatus, setPrinterStatus] = useState(null);
@@ -55,10 +59,18 @@ const PrinterSettings = () => {
     try {
       const availablePrinters = await ipcRenderer.invoke('get-printers');
       setPrinters(availablePrinters);
-      // Auto-select first Generic / Text Only printer if available
-      const genericPrinter = availablePrinters.find(p => p.name.includes('Generic / Text Only'));
-      if (genericPrinter) {
-        setSelectedPrinter(genericPrinter.name);
+      
+      // Check if we have a saved printer that still exists
+      const savedPrinter = localStorage.getItem('selectedPrinter');
+      const savedExists = savedPrinter && availablePrinters.find(p => p.name === savedPrinter);
+      
+      if (savedExists) {
+        setSelectedPrinter(savedPrinter);
+      } else if (availablePrinters.length > 0) {
+        // Auto-select first available printer if no saved selection
+        const firstPrinter = availablePrinters[0].name;
+        setSelectedPrinter(firstPrinter);
+        localStorage.setItem('selectedPrinter', firstPrinter);
       }
     } catch (error) {
       console.error('Error loading printers:', error);
@@ -75,23 +87,36 @@ const PrinterSettings = () => {
   const handlePrinterChange = (event) => {
     const newPrinter = event.target.value;
     setSelectedPrinter(newPrinter);
-    toast.info('Printer selection saved locally (effective in desktop mode)');
+    localStorage.setItem('selectedPrinter', newPrinter);
+    toast.success(`Printer set to: ${newPrinter}`);
   };
 
   const handleTestPrint = async () => {
     setTesting(true);
     try {
-      // Use HTML print service to open a browser print preview as a test
+      // Use direct thermal printing for selected printer
       const sampleOrder = {
         id: 'TEST-PRINT',
-        items: [{ itemName: 'Test Item', quantity: 1, price: 0.01 }],
-        cashier: 'System'
+        items: [
+          { itemName: 'Test Item 1', quantity: 2, price: 150.00 },
+          { itemName: 'Test Item 2', quantity: 1, price: 250.00 }
+        ],
+        cashier: 'System',
+        paymentMethod: 'cash',
+        tender_cash: 600.00
       };
-      const result = await htmlPrintService.printBillHTML(sampleOrder, { name: 'TEST PRINT' });
+      const storeInfo = {
+        name: 'SUPER GLOW',
+        address: 'Colombo, Sri Lanka',
+        phone: '+94 XX XXX XXXX',
+        receiptFooter: 'Thank you for your visit!'
+      };
+      
+      const result = await htmlPrintService.printDirectThermal(sampleOrder, storeInfo);
       if (result.success) {
-        toast.success('Opened print preview (browser).');
+        toast.success(`Test receipt sent to: ${selectedPrinter}`);
       } else {
-        toast.error(result.message || 'Could not open print preview');
+        toast.error(result.message || 'Could not print test receipt');
       }
     } catch (error) {
       toast.error(`Test print error: ${error.message}`);
@@ -156,6 +181,17 @@ const PrinterSettings = () => {
               </Alert>
             )}
 
+            {selectedPrinter && (
+              <Alert severity="info" icon={<Print />} sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  <strong>Selected Printer:</strong> {selectedPrinter}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  This printer will be used for all receipt printing
+                </Typography>
+              </Alert>
+            )}
+
             <Box sx={{ display: 'flex', gap: 2 }}>
               <Button
                 variant="outlined"
@@ -169,7 +205,7 @@ const PrinterSettings = () => {
                 variant="contained"
                 startIcon={testing ? <CircularProgress size={20} /> : <Print />}
                 onClick={handleTestPrint}
-                disabled={!getIpcRenderer() || testing || !printerStatus?.connected}
+                disabled={!getIpcRenderer() || testing || !selectedPrinter}
               >
                 {testing ? 'Printing...' : 'Test Print'}
               </Button>

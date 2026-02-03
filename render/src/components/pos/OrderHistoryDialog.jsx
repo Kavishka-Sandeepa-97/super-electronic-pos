@@ -207,14 +207,20 @@ const OrderHistoryDialog = ({ open, onClose }) => {
 
       const storeInfo = {
         name: 'Super Glow',
-        address: '123 Restaurant Street, City',
-        phone: '+1 234 567 8900',
-        taxRate: 0.10,
-        receiptFooter: 'Thank you for dining with us!',
-        currencySymbol: 'Rs.'
+        address: 'Colombo, Sri Lanka',
+        phone: '+94 XX XXX XXXX',
+        receiptFooter: 'Thank you for your visit!'
       };
 
-      const billResult = await htmlPrintService.printBillHTML(orderData, storeInfo);
+      // Try direct thermal printing first, fall back to browser print
+      const savedPrinter = localStorage.getItem('selectedPrinter');
+      let billResult;
+      
+      if (savedPrinter && window.require) {
+        billResult = await htmlPrintService.printDirectThermal(orderData, storeInfo);
+      } else {
+        billResult = await htmlPrintService.printBillHTML(orderData, storeInfo);
+      }
 
       if (billResult.success) {
         toast.success('Bill printed successfully');

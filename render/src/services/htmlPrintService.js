@@ -1,6 +1,20 @@
 // HTML/CSS print service for browser/Electron printing
 // Opens a window containing a printable receipt and triggers window.print()
 
+// Helper to get ipcRenderer in Electron environment
+const getIpcRenderer = () => {
+  try {
+    if (typeof window !== 'undefined' && window.require) {
+      const { ipcRenderer } = window.require('electron');
+      return ipcRenderer;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get ipcRenderer:', error);
+    return null;
+  }
+};
+
 const htmlPrintService = {
   printBillHTML: async (order = {}, storeInfo = {}) => {
     try {
@@ -139,6 +153,116 @@ const htmlPrintService = {
       }, 300);
 
       return { success: true };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  },
+
+  // Direct thermal printer printing (for XP-80C and similar thermal printers)
+  printDirectThermal: async (order = {}, storeInfo = {}) => {
+    try {
+      const ipcRenderer = getIpcRenderer();
+      const savedPrinter = localStorage.getItem('selectedPrinter');
+      
+      if (!ipcRenderer) {
+        return { success: false, message: 'Direct printing only available in desktop app' };
+      }
+      
+      if (!savedPrinter) {
+        return { success: false, message: 'No printer selected. Please go to Settings > Printer Settings' };
+      }
+
+      const { id, items = [], cashier, paymentMethod, amountPaid, tender_cash, discount_type, discount_value, additional_charges } = order;
+
+      // Calculate totals
+      let subtotal = 0;
+      items.forEach((it) => {
+        const qty = parseFloat(it.quantity || it.qty || 0) || 0;
+        const price = parseFloat(it.price || it.unit_price || 0) || 0;
+        subtotal += qty * price;
+      });
+
+      let discountAmount = 0;
+      if (discount_type === 'percent' && discount_value > 0) {
+        discountAmount = (subtotal * discount_value) / 100;
+      } else if (discount_type === 'fixed' && discount_value > 0) {
+        discountAmount = discount_value;
+      }
+
+      const additionalCharges = parseFloat(additional_charges || order.additionalCharges || 0) || 0;
+      const total = subtotal - discountAmount + additionalCharges;
+      const paid = parseFloat(amountPaid || tender_cash || 0) || 0;
+      const change = paid - total;
+      const currency = 'Rs';
+
+      // Build plain text receipt for thermal printer (80mm width ~ 48 chars)
+      const WIDTH = 48;
+      const center = (text) => {
+        const pad = Math.max(0, Math.floor((WIDTH - text.length) / 2));
+        return ' '.repeat(pad) + text;
+      };
+      const line = '-'.repeat(WIDTH);
+      const doubleLine = '='.repeat(WIDTH);
+
+      let receipt = '';
+      receipt += center(storeInfo.name || 'SUPER GLOW') + '\n';
+      if (storeInfo.address) receipt += center(storeInfo.address) + '\n';
+      if (storeInfo.phone) receipt += center(storeInfo.phone) + '\n';
+      receipt += doubleLine + '\n';
+      receipt += `Order #: ${id || ''}\n`;
+      receipt += `Date: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n`;
+      receipt += `Cashier: ${cashier === 'Admin' ? 'System' : (cashier || 'System')}\n`;
+      receipt += line + '\n';
+      
+      // Items header
+      receipt += 'Item                      Qty      Total\n';
+      receipt += line + '\n';
+      
+      // Items
+      items.forEach((it) => {
+        const itemName = (it.item_name || it.itemName || 'Item').toString();
+        const variantName = (it.variant_name || it.variantName || '').toString();
+        let displayName = variantName ? `${itemName} (${variantName})` : itemName;
+        if (displayName.length > 24) displayName = displayName.substring(0, 21) + '...';
+        
+        const qty = parseFloat(it.quantity || it.qty || 0) || 0;
+        const price = parseFloat(it.price || it.unit_price || 0) || 0;
+        const lineTotal = (qty * price).toFixed(2);
+        
+        receipt += displayName.padEnd(26) + qty.toString().padStart(3) + lineTotal.padStart(12) + '\n';
+      });
+      
+      receipt += line + '\n';
+      receipt += `Subtotal:`.padEnd(36) + `${currency} ${subtotal.toFixed(2)}\n`;
+      
+      if (discountAmount > 0) {
+        const discLabel = discount_type === 'percent' ? `Discount (${discount_value}%):` : 'Discount:';
+        receipt += discLabel.padEnd(36) + `- ${currency} ${discountAmount.toFixed(2)}\n`;
+      }
+      
+      if (additionalCharges > 0) {
+        receipt += `Additional Charge:`.padEnd(36) + `${currency} ${additionalCharges.toFixed(2)}\n`;
+      }
+      
+      receipt += doubleLine + '\n';
+      receipt += `TOTAL:`.padEnd(36) + `${currency} ${total.toFixed(2)}\n`;
+      receipt += doubleLine + '\n';
+      receipt += `Payment: ${paymentMethod || 'cash'}\n`;
+      receipt += `Paid: ${currency} ${paid.toFixed(2)}\n`;
+      if (paid > 0) {
+        receipt += `Change: ${currency} ${change >= 0 ? change.toFixed(2) : '0.00'}\n`;
+      }
+      receipt += '\n';
+      receipt += center(storeInfo.receiptFooter || 'Thank you for your visit!') + '\n';
+      receipt += '\n\n\n'; // Paper feed
+
+      // Send to thermal printer
+      const result = await ipcRenderer.invoke('print-receipt', {
+        content: receipt,
+        printerName: savedPrinter
+      });
+
+      return result;
     } catch (error) {
       return { success: false, message: error.message };
     }
