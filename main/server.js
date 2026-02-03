@@ -8,6 +8,7 @@ const compression = require('compression'); // Add compression
 // Import routes
 const staffRoutes = require('./routes/staff');
 const categoryRoutes = require('./routes/category');
+const brandRoutes = require('./routes/brand');
 const itemRoutes = require('./routes/item');
 const variantRoutes = require('./routes/variant');
 const itemVariantRoutes = require('./routes/itemVariant');
@@ -70,6 +71,7 @@ initializeDatabase();
 // Routes
 server.use('/api/staff', staffRoutes);
 server.use('/api/categories', categoryRoutes);
+server.use('/api/brands', brandRoutes);
 server.use('/api/items', itemRoutes);
 server.use('/api/variants', variantRoutes);
 server.use('/api/item-variants', itemVariantRoutes);

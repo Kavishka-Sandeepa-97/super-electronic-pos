@@ -139,6 +139,37 @@ export const categoriesAPI = {
   },
 };
 
+// Brands API
+export const brandsAPI = {
+  getAll: async () => {
+    return makeRequest('/brands');
+  },
+
+  getById: async (id) => {
+    return makeRequest(`/brands/${id}`);
+  },
+
+  create: async (brandData) => {
+    return makeRequest('/brands', {
+      method: 'POST',
+      body: JSON.stringify(brandData),
+    });
+  },
+
+  update: async (id, brandData) => {
+    return makeRequest(`/brands/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(brandData),
+    });
+  },
+
+  delete: async (id) => {
+    return makeRequest(`/brands/${id}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 // Items API
 export const itemsAPI = {
   getAll: async () => {
@@ -764,6 +795,7 @@ export default {
   auth: authAPI,
   staff: staffAPI,
   categories: categoriesAPI,
+  brands: brandsAPI,
   items: itemsAPI,
   variants: variantsAPI,
   itemVariants: itemVariantsAPI,

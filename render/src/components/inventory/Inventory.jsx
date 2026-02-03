@@ -72,6 +72,7 @@ import { fetchCategories, fetchVariants, fetchItemVariants } from '../../store/s
 import api from '../../services/api';
 import SellPriceHistory from '../SellPriceHistory';
 import CategoryManagementMenu from './CategoryManagementMenu';
+import BrandManagementMenu from './BrandManagementMenu';
 // import AddItemWithVariants from './AddItemWithVariants';
 
 const getCategoryIcon = (categoryName) => {
@@ -1553,11 +1554,10 @@ const Inventory = () => {
 
       <Tabs value={currentTab} onChange={handleTabChange} sx={{ mb: 3 }}>
         <Tab label="Overview" />
-        <Tab label="All Items" />
         <Tab label="Categories" />
+        <Tab label="Brands" />
         <Tab label="Variants" />
         <Tab label="ITEM" />
-        <Tab label="Low Stock" />
       </Tabs>
 
       {currentTab === 0 && (
@@ -1568,9 +1568,9 @@ const Inventory = () => {
         </>
       )}
 
-      {currentTab === 1 && ItemsTable()}
+      {currentTab === 1 && <CategoryManagement />}
 
-      {currentTab === 2 && <CategoryManagement />}
+      {currentTab === 2 && <BrandManagementMenu />}
 
       {currentTab === 3 && <VariantManagement />}
 
@@ -1582,56 +1582,6 @@ const Inventory = () => {
           setItemSearchTerm={setItemSearchTerm}
           loading={loading}
         />
-      )}
-
-      {currentTab === 5 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Items Requiring Attention
-            </Typography>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Item Name</TableCell>
-                    <TableCell>Variant</TableCell>
-                    <TableCell>Current Stock</TableCell>
-                    <TableCell>Min Stock</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {lowStockItems.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell>{item.variant}</TableCell>
-                      <TableCell>{item.stock}</TableCell>
-                      <TableCell>{item.minStock || 5}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={getStockStatus(item).label}
-                          color={getStockStatus(item).color}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => handleEditItem(item)}
-                        >
-                          Update Stock
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
       )}
 
       {/* Add Item with Variants Dialog - Commented out as we use simplified dialog now */}
