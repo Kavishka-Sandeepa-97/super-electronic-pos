@@ -62,7 +62,7 @@ router.get('/:id', (req, res) => {
 // Create new item
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { category_id, name, image } = req.body;
+  const { category_id, brand_id, name, gender, image } = req.body;
 
   if (!category_id || !name) {
     return res.status(400).json({ error: 'Category ID and name are required' });
@@ -75,11 +75,21 @@ router.post('/', (req, res) => {
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    const result = db.prepare('INSERT INTO item (category_id, name, image, created_at) VALUES (?, ?, ?, ?)').run(category_id, name, image, getCurrentUTCTimestamp());
+    // Check if brand exists (if provided)
+    if (brand_id) {
+      const brand = db.prepare('SELECT id FROM brand WHERE id = ?').get(brand_id);
+      if (!brand) {
+        return res.status(404).json({ error: 'Brand not found' });
+      }
+    }
+
+    const result = db.prepare('INSERT INTO item (category_id, brand_id, name, gender, image, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(category_id, brand_id || null, name, gender || 'UNISEX', image, getCurrentUTCTimestamp());
     res.status(201).json({
       id: result.lastInsertRowid,
       category_id,
+      brand_id,
       name,
+      gender,
       image,
       message: 'Item created successfully'
     });
@@ -92,7 +102,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { category_id, name, image } = req.body;
+  const { category_id, brand_id, name, gender, image } = req.body;
 
   let updateFields = [];
   let values = [];
@@ -101,9 +111,17 @@ router.put('/:id', (req, res) => {
     updateFields.push('category_id = ?');
     values.push(category_id);
   }
+  if (brand_id !== undefined) {
+    updateFields.push('brand_id = ?');
+    values.push(brand_id || null);
+  }
   if (name) {
     updateFields.push('name = ?');
     values.push(name);
+  }
+  if (gender) {
+    updateFields.push('gender = ?');
+    values.push(gender);
   }
   if (image !== undefined) {
     updateFields.push('image = ?');

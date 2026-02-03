@@ -45,6 +45,7 @@ import {
   CardMedia,
   Autocomplete,
   Radio,
+  Menu,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -65,6 +66,8 @@ import {
   History as HistoryIcon,
   Refresh as RefreshIcon,
   ListAlt as ListAltIcon,
+  ChevronRight as ChevronRightIcon,
+  ArrowDropDown as ArrowDropDownIcon,
 } from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -85,6 +88,19 @@ const getCategoryIcon = (categoryName) => {
   return iconMap[categoryName] || '📦';
 };
 
+// Helper function to flatten categories for display
+const flattenCategories = (categories, prefix = '') => {
+  let result = [];
+  categories.forEach(cat => {
+    const displayName = prefix ? `${prefix} > ${cat.name}` : cat.name;
+    result.push({ ...cat, displayName });
+    if (cat.subcategories && cat.subcategories.length > 0) {
+      result = result.concat(flattenCategories(cat.subcategories, displayName));
+    }
+  });
+  return result;
+};
+
 const ItemManagement = React.memo(({
   categories,
   itemVariants,
@@ -93,12 +109,16 @@ const ItemManagement = React.memo(({
   loading
 }) => {
   const dispatch = useDispatch();
-  const [showForm, setShowForm] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [savingItem, setSavingItem] = useState(false);
+  const [brands, setBrands] = useState([]);
   const [itemFormData, setItemFormData] = useState({
     name: '',
-    category: '',
+    category_id: '',
+    category_name: '',
+    brand_id: '',
+    gender: 'UNISEX',
     image: null,
     imagePreview: null,
   });
@@ -108,41 +128,111 @@ const ItemManagement = React.memo(({
   });
   const itemFileInputRef = useRef(null);
 
+  // Category menu states
+  const [categoryAnchorEl, setCategoryAnchorEl] = useState(null);
+  const [level1Anchor, setLevel1Anchor] = useState(null);
+  const [level1Category, setLevel1Category] = useState(null);
+  const [level2Anchor, setLevel2Anchor] = useState(null);
+  const [level2Category, setLevel2Category] = useState(null);
+  const [activePath, setActivePath] = useState([]);
+
+  // Fetch brands
+  useEffect(() => {
+    const fetchBrands = async () => {
+      try {
+        const data = await api.brands.getAll();
+        setBrands(data);
+      } catch (error) {
+        console.error('Error fetching brands:', error);
+      }
+    };
+    fetchBrands();
+  }, []);
+
   const handleAddNewItem = () => {
     setEditingItem(null);
     setItemFormData({
       name: '',
-      category: categories.length > 0 ? categories[0].name : '',
+      category_id: '',
+      category_name: '',
+      brand_id: '',
+      gender: 'UNISEX',
       image: null,
       imagePreview: null,
     });
     setFormFieldTouched({ name: false, category: false });
-    setShowForm(true);
+    setDialogOpen(true);
   };
 
   const handleEditItemInline = (item) => {
     setEditingItem(item);
     setItemFormData({
       name: item.item_name || item.name || '',
-      category: item.category_name || item.category || '',
+      category_id: item.category_id || '',
+      category_name: item.category_name || item.category || '',
+      brand_id: item.brand_id || '',
+      gender: item.gender || 'UNISEX',
       image: null,
       imagePreview: item.image || null,
     });
     setFormFieldTouched({ name: false, category: false });
-    setShowForm(true);
+    setDialogOpen(true);
   };
 
-  const handleCancelForm = () => {
-    setShowForm(false);
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
     setEditingItem(null);
     setItemFormData({
       name: '',
-      category: '',
+      category_id: '',
+      category_name: '',
+      brand_id: '',
+      gender: 'UNISEX',
       image: null,
       imagePreview: null,
     });
     setFormFieldTouched({ name: false, category: false });
+    closeCategoryMenus();
   };
+
+  // Category menu handlers
+  const handleCategoryButtonClick = (event) => {
+    setCategoryAnchorEl(event.currentTarget);
+  };
+
+  const closeCategoryMenus = () => {
+    setCategoryAnchorEl(null);
+    setLevel1Anchor(null);
+    setLevel1Category(null);
+    setLevel2Anchor(null);
+    setLevel2Category(null);
+    setActivePath([]);
+  };
+
+  const handleCategorySelect = (category) => {
+    setItemFormData(prev => ({
+      ...prev,
+      category_id: category.id,
+      category_name: category.name,
+    }));
+    closeCategoryMenus();
+  };
+
+  const openLevel1 = useCallback((event, category) => {
+    setLevel2Anchor(null);
+    setLevel2Category(null);
+    setLevel1Anchor(event.currentTarget);
+    setLevel1Category(category);
+    setActivePath([category.id]);
+  }, []);
+
+  const openLevel2 = useCallback((event, category) => {
+    setLevel2Anchor(event.currentTarget);
+    setLevel2Category(category);
+    setActivePath(prev => [prev[0], category.id]);
+  }, []);
+
+  const isInActivePath = (categoryId) => activePath.includes(categoryId);
 
   const handleImageUploadInline = async (event) => {
     const file = event.target.files[0];
@@ -157,21 +247,15 @@ const ItemManagement = React.memo(({
       }
 
       try {
-        // Compress image for better performance
         const options = {
-          maxSizeMB: 1,              // Max 1MB
-          maxWidthOrHeight: 1920,    // Max resolution
-          quality: 0.85,             // 85% quality (excellent for product images)
-          useWebWorker: true         // Non-blocking
+          maxSizeMB: 1,
+          maxWidthOrHeight: 1920,
+          quality: 0.85,
+          useWebWorker: true
         };
         
         const compressedFile = await imageCompression(file, options);
         
-        // Show compression info
-        const originalSizeMB = (file.size / 1024 / 1024).toFixed(2);
-        const compressedSizeMB = (compressedFile.size / 1024 / 1024).toFixed(2);
-        console.log(`Image compressed: ${originalSizeMB}MB → ${compressedSizeMB}MB`);
-
         const reader = new FileReader();
         reader.onload = (e) => {
           setItemFormData(prev => ({
@@ -206,7 +290,7 @@ const ItemManagement = React.memo(({
       return;
     }
 
-    if (!itemFormData.category) {
+    if (!itemFormData.category_id) {
       toast.error('Category selection is required.');
       setFormFieldTouched(prev => ({ ...prev, category: true }));
       return;
@@ -214,14 +298,11 @@ const ItemManagement = React.memo(({
 
     setSavingItem(true);
     try {
-      const categoryObj = categories.find(c => c.name === itemFormData.category);
-      if (!categoryObj) {
-        throw new Error('Invalid category selected');
-      }
-
       const itemData = {
         name: itemFormData.name,
-        category_id: categoryObj.id,
+        category_id: itemFormData.category_id,
+        brand_id: itemFormData.brand_id || null,
+        gender: itemFormData.gender,
         image: itemFormData.imagePreview,
       };
 
@@ -238,7 +319,7 @@ const ItemManagement = React.memo(({
       }
 
       dispatch(fetchItemVariants());
-      handleCancelForm();
+      handleCloseDialog();
     } catch (error) {
       console.error('Error saving item:', error);
       toast.error('Error saving item: ' + error.message);
@@ -288,240 +369,414 @@ const ItemManagement = React.memo(({
   }, [itemVariants, itemSearchTerm]);
 
   return (
-    <Card>
-      <CardContent>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-          <Typography variant="h6" fontWeight="bold">
-            Item Management
-          </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleAddNewItem}
-            disabled={showForm}
-          >
-            Add New Item
-          </Button>
-        </Box>
-
-        <Box display="flex" gap={2} mb={3}>
-          <TextField
-            fullWidth
-            placeholder="Search items by name or category..."
-            value={itemSearchTerm}
-            onChange={(e) => setItemSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-            size="small"
-          />
-          <Tooltip title="Refresh items">
-            <IconButton
-              onClick={handleRefresh}
-              color="primary"
-              sx={{
-                border: '1px solid',
-                borderColor: 'primary.main',
-                borderRadius: 1
-              }}
-            >
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
-
-        {showForm && (
-          <Card sx={{ mb: 3, bgcolor: 'grey.50' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                {editingItem ? 'Edit Item' : 'Add New Item'}
-              </Typography>
-              <Grid container spacing={3} sx={{ mt: 1 }}>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Item Name"
-                    value={itemFormData.name}
-                    onChange={(e) => setItemFormData({ ...itemFormData, name: e.target.value })}
-                    onBlur={() => setFormFieldTouched(prev => ({ ...prev, name: true }))}
-                    required
-                    error={formFieldTouched.name && !itemFormData.name.trim()}
-                    helperText={formFieldTouched.name && !itemFormData.name.trim() ? 'Item name is required' : ''}
-                  />
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth required error={formFieldTouched.category && !itemFormData.category}>
-                    <InputLabel>Category *</InputLabel>
-                    <Select
-                      value={itemFormData.category}
-                      label="Category *"
-                      onChange={(e) => setItemFormData({ ...itemFormData, category: e.target.value })}
-                      onBlur={() => setFormFieldTouched(prev => ({ ...prev, category: true }))}
-                    >
-                      {categories.map((category) => (
-                        <MenuItem key={category.id} value={category.name}>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <span>{getCategoryIcon(category.name)}</span>
-                            {category.name}
-                          </Box>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                    {formFieldTouched.category && !itemFormData.category && (
-                      <FormHelperText>Category selection is required</FormHelperText>
-                    )}
-                  </FormControl>
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Item Image
-                  </Typography>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Box>
-                      {itemFormData.imagePreview ? (
-                        <Badge
-                          overlap="circular"
-                          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                          badgeContent={
-                            <Tooltip title="Remove image">
-                              <IconButton
-                                size="small"
-                                onClick={removeImageInline}
-                                sx={{
-                                  bgcolor: 'error.main',
-                                  color: 'white',
-                                  '&:hover': { bgcolor: 'error.dark' }
-                                }}
-                              >
-                                <CloseIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          }
-                        >
-                          <Avatar
-                            src={itemFormData.imagePreview}
-                            sx={{ width: 80, height: 80 }}
-                          />
-                        </Badge>
-                      ) : (
-                        <Avatar
-                          sx={{
-                            width: 80,
-                            height: 80,
-                            bgcolor: 'grey.200',
-                            fontSize: '2rem'
-                          }}
-                        >
-                          {itemFormData.category ? getCategoryIcon(itemFormData.category) : <ImageIcon />}
-                        </Avatar>
-                      )}
-                    </Box>
-
-                    <Box>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUploadInline}
-                        style={{ display: 'none' }}
-                        ref={itemFileInputRef}
-                      />
-                      <Button
-                        variant="outlined"
-                        startIcon={<PhotoCameraIcon />}
-                        onClick={() => itemFileInputRef.current?.click()}
-                      >
-                        Upload Image
-                      </Button>
-                      <Typography variant="caption" display="block" color="text.secondary">
-                        Max 5MB. If no image is uploaded, category icon will be used.
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Grid>
-
-                <Grid item xs={12}>
-                  <Box display="flex" gap={2} justifyContent="flex-end">
-                    <Button onClick={handleCancelForm}>
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSaveItemInline}
-                      variant="contained"
-                      disabled={savingItem}
-                      startIcon={savingItem && <CircularProgress size={20} />}
-                    >
-                      {savingItem ? 'Saving...' : (editingItem ? 'Update' : 'Add')} Item
-                    </Button>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        )}
-
-        {loading ? (
-          <Box display="flex" justifyContent="center" p={3}>
-            <CircularProgress />
-          </Box>
-        ) : filteredUniqueItems.length === 0 ? (
-          <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" p={5}>
-            <Typography variant="body1" color="text.secondary" gutterBottom>
-              {itemSearchTerm ? 'No items found matching your search' : 'No items available'}
+    <>
+      <Card>
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+            <Typography variant="h6" fontWeight="bold">
+              Item Management
             </Typography>
-            {itemSearchTerm && (
-              <Typography variant="body2" color="text.secondary">
-                Try adjusting your search terms
-              </Typography>
-            )}
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleAddNewItem}
+            >
+              Add New Item
+            </Button>
           </Box>
-        ) : (
-          <List>
-            {filteredUniqueItems.map((item) => (
-              <React.Fragment key={item.item_id_ref || item.id}>
-                <ListItem>
-                  <Box display="flex" alignItems="center" gap={2} sx={{ flexGrow: 1 }}>
-                    <Avatar
-                      src={item.image}
-                      sx={{ width: 50, height: 50 }}
+
+          <Box display="flex" gap={2} mb={3}>
+            <TextField
+              fullWidth
+              placeholder="Search items by name or category..."
+              value={itemSearchTerm}
+              onChange={(e) => setItemSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+              size="small"
+            />
+            <Tooltip title="Refresh items">
+              <IconButton
+                onClick={handleRefresh}
+                color="primary"
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'primary.main',
+                  borderRadius: 1
+                }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {loading ? (
+            <Box display="flex" justifyContent="center" p={3}>
+              <CircularProgress />
+            </Box>
+          ) : filteredUniqueItems.length === 0 ? (
+            <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" p={5}>
+              <Typography variant="body1" color="text.secondary" gutterBottom>
+                {itemSearchTerm ? 'No items found matching your search' : 'No items available'}
+              </Typography>
+              {itemSearchTerm && (
+                <Typography variant="body2" color="text.secondary">
+                  Try adjusting your search terms
+                </Typography>
+              )}
+            </Box>
+          ) : (
+            <List>
+              {filteredUniqueItems.map((item) => (
+                <React.Fragment key={item.item_id_ref || item.id}>
+                  <ListItem>
+                    <Box display="flex" alignItems="center" gap={2} sx={{ flexGrow: 1 }}>
+                      <Avatar
+                        src={item.image}
+                        sx={{ width: 50, height: 50 }}
+                      >
+                        {getCategoryIcon(item.category_name || item.category)}
+                      </Avatar>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body1" fontWeight="bold">
+                            {item.item_name || item.name}
+                          </Typography>
+                        }
+                        secondary={
+                          <Box display="flex" gap={1} alignItems="center">
+                            <Chip
+                              label={item.category_name || item.category}
+                              size="small"
+                            />
+                            {item.brand_name && (
+                              <Chip
+                                label={item.brand_name}
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                              />
+                            )}
+                          </Box>
+                        }
+                      />
+                    </Box>
+                    <ListItemSecondaryAction>
+                      <IconButton edge="end" onClick={() => handleEditItemInline(item)}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton edge="end" onClick={() => handleDeleteItemInline(item)} color="error">
+                        <DeleteIcon />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                  <Divider />
+                </React.Fragment>
+              ))}
+            </List>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add/Edit Item Dialog */}
+      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {editingItem ? 'Edit Item' : 'Add New Item'}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={3} sx={{ mt: 0.5 }}>
+            {/* Item Name */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Item Name"
+                value={itemFormData.name}
+                onChange={(e) => setItemFormData({ ...itemFormData, name: e.target.value })}
+                onBlur={() => setFormFieldTouched(prev => ({ ...prev, name: true }))}
+                required
+                error={formFieldTouched.name && !itemFormData.name.trim()}
+                helperText={formFieldTouched.name && !itemFormData.name.trim() ? 'Item name is required' : ''}
+                autoFocus
+              />
+            </Grid>
+
+            {/* Category - Cascading Menu (Left side) */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth required error={formFieldTouched.category && !itemFormData.category_id}>
+                <InputLabel>Category *</InputLabel>
+                <Select
+                  value={itemFormData.category_id || ''}
+                  label="Category *"
+                  open={false}
+                  onClick={handleCategoryButtonClick}
+                  onBlur={() => setFormFieldTouched(prev => ({ ...prev, category: true }))}
+                  renderValue={() => itemFormData.category_name || ''}
+                  IconComponent={ArrowDropDownIcon}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <MenuItem value="">Select Category</MenuItem>
+                </Select>
+                {formFieldTouched.category && !itemFormData.category_id && (
+                  <FormHelperText>Category selection is required</FormHelperText>
+                )}
+              </FormControl>
+
+                {/* Main Category Menu */}
+                <Menu
+                  anchorEl={categoryAnchorEl}
+                  open={Boolean(categoryAnchorEl)}
+                  onClose={closeCategoryMenus}
+                  sx={{ '& .MuiPaper-root': { minWidth: 220, maxHeight: 400 } }}
+                >
+                  {categories.map((category) => {
+                    const hasSubs = category.subcategories?.length > 0;
+                    const isActive = isInActivePath(category.id);
+                    
+                    return (
+                      <MenuItem
+                        key={category.id}
+                        onClick={(e) => hasSubs ? openLevel1(e, category) : handleCategorySelect(category)}
+                        onMouseEnter={(e) => hasSubs && openLevel1(e, category)}
+                        selected={itemFormData.category_id === category.id}
+                        sx={{
+                          backgroundColor: isActive ? '#e3f2fd' : 'transparent',
+                          color: isActive ? 'primary.main' : 'inherit',
+                          fontWeight: isActive ? 600 : 400,
+                          '&:hover': { backgroundColor: isActive ? '#bbdefb' : '#f5f5f5' },
+                        }}
+                      >
+                        <Box display="flex" alignItems="center" gap={1} sx={{ flexGrow: 1 }}>
+                          <span>{getCategoryIcon(category.name)}</span>
+                          {category.name}
+                        </Box>
+                        {hasSubs && <ChevronRightIcon sx={{ color: isActive ? 'primary.main' : 'inherit' }} />}
+                      </MenuItem>
+                    );
+                  })}
+                </Menu>
+
+                {/* Level 1 Submenu */}
+                <Menu
+                  anchorEl={level1Anchor}
+                  open={Boolean(level1Anchor)}
+                  onClose={() => {}}
+                  anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                  hideBackdrop
+                  disableAutoFocus
+                  disableEnforceFocus
+                  sx={{
+                    pointerEvents: 'none',
+                    '& .MuiPaper-root': { 
+                      pointerEvents: 'auto',
+                      minWidth: 220, 
+                      maxHeight: 400 
+                    },
+                  }}
+                >
+                  {level1Category?.subcategories?.map((subcat) => {
+                    const hasDeepSubs = subcat.subcategories?.length > 0;
+                    const isActive = isInActivePath(subcat.id);
+                    
+                    return (
+                      <MenuItem
+                        key={subcat.id}
+                        onClick={(e) => hasDeepSubs ? openLevel2(e, subcat) : handleCategorySelect(subcat)}
+                        onMouseEnter={(e) => hasDeepSubs && openLevel2(e, subcat)}
+                        selected={itemFormData.category_id === subcat.id}
+                        sx={{
+                          backgroundColor: isActive ? '#e3f2fd' : 'transparent',
+                          color: isActive ? 'primary.main' : 'inherit',
+                          '&:hover': { backgroundColor: isActive ? '#bbdefb' : '#f5f5f5' },
+                        }}
+                      >
+                        <Box display="flex" alignItems="center" gap={1} sx={{ flexGrow: 1 }}>
+                          {subcat.name}
+                        </Box>
+                        {hasDeepSubs && <ChevronRightIcon sx={{ color: isActive ? 'primary.main' : 'inherit' }} />}
+                      </MenuItem>
+                    );
+                  })}
+                </Menu>
+
+                {/* Level 2 Submenu */}
+                <Menu
+                  anchorEl={level2Anchor}
+                  open={Boolean(level2Anchor)}
+                  onClose={() => {}}
+                  anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                  hideBackdrop
+                  disableAutoFocus
+                  disableEnforceFocus
+                  sx={{
+                    pointerEvents: 'none',
+                    '& .MuiPaper-root': { 
+                      pointerEvents: 'auto',
+                      minWidth: 200, 
+                      maxHeight: 400 
+                    },
+                  }}
+                >
+                  {level2Category?.subcategories?.map((deepSubcat) => (
+                    <MenuItem
+                      key={deepSubcat.id}
+                      onClick={() => handleCategorySelect(deepSubcat)}
+                      selected={itemFormData.category_id === deepSubcat.id}
+                      sx={{ '&:hover': { backgroundColor: '#f5f5f5' } }}
                     >
-                      {getCategoryIcon(item.category_name || item.category)}
-                    </Avatar>
-                    <ListItemText
-                      primary={
-                        <Typography variant="body1" fontWeight="bold">
-                          {item.item_name || item.name}
-                        </Typography>
-                      }
-                      secondary={
-                        <Chip
-                          label={item.category_name || item.category}
-                          size="small"
-                        />
-                      }
+                      {deepSubcat.name}
+                    </MenuItem>
+                  ))}
+                </Menu>
+            </Grid>
+
+            {/* Brand Selection (Right side) */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Brand</InputLabel>
+                <Select
+                  value={itemFormData.brand_id}
+                  label="Brand"
+                  onChange={(e) => setItemFormData({ ...itemFormData, brand_id: e.target.value })}
+                >
+                  {brands.map((brand) => (
+                    <MenuItem key={brand.id} value={brand.id}>
+                      {brand.brand_name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Gender Selection */}
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                Gender
+              </Typography>
+              <Box display="flex" gap={2}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={itemFormData.gender === 'MEN'}
+                      onChange={() => setItemFormData({ ...itemFormData, gender: 'MEN' })}
+                      sx={{ '&.Mui-checked': { color: '#1976d2' } }}
                     />
-                  </Box>
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleEditItemInline(item)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteItemInline(item)} color="error">
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-                <Divider />
-              </React.Fragment>
-            ))}
-          </List>
-        )}
-      </CardContent>
-    </Card>
+                  }
+                  label="Men"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={itemFormData.gender === 'WOMEN'}
+                      onChange={() => setItemFormData({ ...itemFormData, gender: 'WOMEN' })}
+                      sx={{ '&.Mui-checked': { color: '#e91e63' } }}
+                    />
+                  }
+                  label="Women"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={itemFormData.gender === 'UNISEX'}
+                      onChange={() => setItemFormData({ ...itemFormData, gender: 'UNISEX' })}
+                      sx={{ '&.Mui-checked': { color: '#4CAF50' } }}
+                    />
+                  }
+                  label="Unisex"
+                />
+              </Box>
+            </Grid>
+
+            {/* Image Upload */}
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" gutterBottom>
+                Item Image
+              </Typography>
+              <Box display="flex" alignItems="center" gap={2}>
+                <Box>
+                  {itemFormData.imagePreview ? (
+                    <Badge
+                      overlap="circular"
+                      anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                      badgeContent={
+                        <Tooltip title="Remove image">
+                          <IconButton
+                            size="small"
+                            onClick={removeImageInline}
+                            sx={{
+                              bgcolor: 'error.main',
+                              color: 'white',
+                              '&:hover': { bgcolor: 'error.dark' }
+                            }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      }
+                    >
+                      <Avatar
+                        src={itemFormData.imagePreview}
+                        sx={{ width: 80, height: 80 }}
+                      />
+                    </Badge>
+                  ) : (
+                    <Avatar
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        bgcolor: 'grey.200',
+                        fontSize: '2rem'
+                      }}
+                    >
+                      {itemFormData.category_name ? getCategoryIcon(itemFormData.category_name) : <ImageIcon />}
+                    </Avatar>
+                  )}
+                </Box>
+
+                <Box>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUploadInline}
+                    style={{ display: 'none' }}
+                    ref={itemFileInputRef}
+                  />
+                  <Button
+                    variant="outlined"
+                    startIcon={<PhotoCameraIcon />}
+                    onClick={() => itemFileInputRef.current?.click()}
+                  >
+                    Upload Image
+                  </Button>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    Max 5MB. If no image is uploaded, category icon will be used.
+                  </Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveItemInline}
+            variant="contained"
+            disabled={savingItem}
+            startIcon={savingItem && <CircularProgress size={20} />}
+          >
+            {savingItem ? 'Saving...' : (editingItem ? 'Update' : 'Add')} Item
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 });
 
@@ -1305,13 +1560,6 @@ const Inventory = () => {
           <Typography variant="h6" fontWeight="bold">
             Inventory Items
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleAddItem}
-          >
-            Add New Final Selling Product
-          </Button>
         </Box>
 
         <Box display="flex" gap={2} mb={3}>
@@ -1552,13 +1800,28 @@ const Inventory = () => {
         Inventory Management
       </Typography>
 
-      <Tabs value={currentTab} onChange={handleTabChange} sx={{ mb: 3 }}>
-        <Tab label="Overview" />
-        <Tab label="Categories" />
-        <Tab label="Brands" />
-        <Tab label="Variants" />
-        <Tab label="ITEM" />
-      </Tabs>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Tabs value={currentTab} onChange={handleTabChange}>
+          <Tab label="Overview" />
+          <Tab label="Categories" />
+          <Tab label="Brands" />
+          <Tab label="Variants" />
+          <Tab label="ITEM" />
+        </Tabs>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={handleAddItem}
+          sx={{
+            bgcolor: '#4CAF50',
+            '&:hover': { bgcolor: '#388E3C' },
+            fontWeight: 'bold',
+            px: 3,
+          }}
+        >
+          Add New Final Selling Product
+        </Button>
+      </Box>
 
       {currentTab === 0 && (
         <>
@@ -1881,7 +2144,7 @@ const Inventory = () => {
                 label="Variant Name"
                 value={newVariant.variant_name}
                 onChange={(e) => setNewVariant({ ...newVariant, variant_name: e.target.value })}
-                placeholder="e.g., 250ml, Large, Small, Regular"
+                placeholder="e.g., 10ml, 50ml, 100ml, Red, Vanilla, Rose, Large, Small"
                 autoFocus
               />
             </Grid>

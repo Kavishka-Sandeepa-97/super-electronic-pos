@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   try {
     const rows = db.prepare(`
       SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
-             v.variant_name, c.name as category_name,
+             i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price,
@@ -42,7 +42,7 @@ router.get('/:id', (req, res) => {
   try {
     const row = db.prepare(`
       SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
-             v.variant_name, c.name as category_name,
+             i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price
