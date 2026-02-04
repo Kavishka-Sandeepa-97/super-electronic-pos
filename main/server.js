@@ -85,7 +85,7 @@ server.use('/api/reports', reportsRoutes);
 // New route for creating item with variant and image
 server.post('/api/item-variants/create-full', upload.single('image'), (req, res) => {
   const db = getDatabase();
-  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description } = req.body;
+  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description, expiryDate } = req.body;
   const imagePath = req.file ? req.file.path : null;
 
   if (!name || !category || !variant || !sellingPrice || !initialQuantity) {
@@ -132,10 +132,10 @@ server.post('/api/item-variants/create-full', upload.single('image'), (req, res)
       throw err;
     }
 
-    // 5. Insert into stock_batch with description
+    // 5. Insert into stock_batch with description and expire_date
     const stockResult = db.prepare(
-      'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(item_variant_id, parseInt(initialQuantity), parseInt(initialQuantity), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
+      'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(item_variant_id, parseInt(initialQuantity), parseInt(initialQuantity), parseFloat(buyingPrice || 0), description || null, expiryDate || null, getCurrentUTCTimestamp());
     const stock_batch_id = stockResult.lastInsertRowid;
 
     // 6. Insert into sell_price_history with stock_batch_id reference
@@ -184,7 +184,7 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
 
     // 3. Process each variant
     for (const variantData of variants) {
-      const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description } = variantData;
+      const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description, expiryDate } = variantData;
 
       if (!variantName || !sellingPrice) {
         throw new Error(`Variant ${variantName || 'unnamed'} is missing required fields`);
@@ -218,8 +218,8 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
 
       // Insert into stock_batch
       const stockResult = db.prepare(
-        'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(item_variant_id, parseInt(initialQuantity || 0), parseInt(initialQuantity || 0), parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
+        'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(item_variant_id, parseInt(initialQuantity || 0), parseInt(initialQuantity || 0), parseFloat(buyingPrice || 0), description || null, expiryDate || null, getCurrentUTCTimestamp());
       const stock_batch_id = stockResult.lastInsertRowid;
 
       // Insert into sell_price_history
@@ -277,6 +277,71 @@ server.post('/api/stock-batch/add', (req, res) => {
     });
   } catch (error) {
     console.error('Transaction failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get stock batches for an item variant
+server.get('/api/stock/batches/:itemVariantId', (req, res) => {
+  const db = getDatabase();
+  const { itemVariantId } = req.params;
+
+  try {
+    const batches = db.prepare(`
+      SELECT sb.*, s.name as supplier_name
+      FROM stock_batch sb
+      LEFT JOIN supplier s ON sb.supplier_id = s.id
+      WHERE sb.item_variant_id = ?
+      ORDER BY sb.created_at DESC
+    `).all(itemVariantId);
+    
+    res.json(batches);
+  } catch (error) {
+    console.error('Error fetching stock batches:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get stock movements/history for an item variant
+server.get('/api/stock/movements/:itemVariantId', (req, res) => {
+  const db = getDatabase();
+  const { itemVariantId } = req.params;
+
+  try {
+    // Get order-related movements (stock out)
+    const movements = db.prepare(`
+      SELECT 
+        'OUT' as type,
+        ivo.qty as quantity,
+        ivo.unit_price as price,
+        o.date as created_at,
+        o.id as reference_id,
+        'Order #' || o.id as description,
+        s.name as staff_name
+      FROM item_variant_order ivo
+      JOIN orders o ON ivo.order_id = o.id
+      JOIN staff s ON o.staff_id = s.id
+      WHERE ivo.item_variant_id = ? AND o.status = 'completed'
+      
+      UNION ALL
+      
+      SELECT 
+        'IN' as type,
+        sb.initial_qty as quantity,
+        sb.buy_price as price,
+        sb.created_at,
+        sb.id as reference_id,
+        COALESCE(sb.description, 'Stock Added') as description,
+        'System' as staff_name
+      FROM stock_batch sb
+      WHERE sb.item_variant_id = ?
+      
+      ORDER BY created_at DESC
+    `).all(itemVariantId, itemVariantId);
+    
+    res.json(movements);
+  } catch (error) {
+    console.error('Error fetching stock movements:', error);
     res.status(500).json({ error: error.message });
   }
 });

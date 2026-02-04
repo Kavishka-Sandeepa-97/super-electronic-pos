@@ -163,10 +163,12 @@ const createTables = () => {
       item_variant_id INTEGER NOT NULL,
       staff_id INTEGER NOT NULL,
       selling_price DECIMAL(10,2) NOT NULL,
+      stock_batch_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
-      FOREIGN KEY (staff_id) REFERENCES staff(id)
+      FOREIGN KEY (staff_id) REFERENCES staff(id),
+      FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
     )
   `);
 

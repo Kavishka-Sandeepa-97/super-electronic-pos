@@ -1219,7 +1219,8 @@ const Inventory = () => {
     setNewStockData({
       buyingPrice: '',
       quantity: '',
-      description: ''
+      description: '',
+      expiryDate: ''
     });
     setAddStockDialog(true);
   };
@@ -1367,7 +1368,8 @@ const Inventory = () => {
         item_variant_id: selectedItemForStock.id,
         quantity: parseInt(newStockData.quantity),
         buyingPrice: parseFloat(newStockData.buyingPrice),
-        description: newStockData.description || ''
+        description: newStockData.description || '',
+        expire_date: newStockData.expiryDate || null
       });
       toast.success('Stock batch added successfully');
       dispatch(fetchItemVariants());
@@ -1990,32 +1992,34 @@ const Inventory = () => {
               </Box>
             </Grid>
 
-            {/* Category Selection - Required */}
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth required error={fieldTouched.category && !newItem.category}>
-                <InputLabel>Category *</InputLabel>
-                <Select
-                  value={newItem.category}
-                  label="Category *"
-                  onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                  onBlur={() => setFieldTouched(prev => ({ ...prev, category: true }))}
-                >
-                  {categories.map((category) => (
-                    <MenuItem key={category.id} value={category.name}>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <span>{getCategoryIcon(category.name)}</span>
-                        {category.name}
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-                {fieldTouched.category && !newItem.category && (
-                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
-                    Category selection is required
-                  </Typography>
-                )}
-              </FormControl>
-            </Grid>
+            {/* Category Selection - Only show when adding new item */}
+            {!selectedItem && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth required error={fieldTouched.category && !newItem.category}>
+                  <InputLabel>Category *</InputLabel>
+                  <Select
+                    value={newItem.category}
+                    label="Category *"
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                    onBlur={() => setFieldTouched(prev => ({ ...prev, category: true }))}
+                  >
+                    {categories.map((category) => (
+                      <MenuItem key={category.id} value={category.name}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <span>{getCategoryIcon(category.name)}</span>
+                          {category.name}
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {fieldTouched.category && !newItem.category && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                      Category selection is required
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+            )}
 
             {/* Variant Selection - Required */}
             <Grid item xs={12} sm={6}>
@@ -2252,15 +2256,23 @@ const Inventory = () => {
                 required
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Expiry Date"
+                type="date"
+                value={newStockData.expiryDate}
+                onChange={(e) => setNewStockData({ ...newStockData, expiryDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Description / Batch Info"
-                multiline
-                rows={2}
                 value={newStockData.description}
                 onChange={(e) => setNewStockData({ ...newStockData, description: e.target.value })}
-                placeholder="e.g., Shipment from Supplier X, Batch #123"
+                placeholder="e.g., Batch #123"
               />
             </Grid>
           </Grid>

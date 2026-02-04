@@ -49,6 +49,7 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
       buyingPrice: '',
       initialQuantity: '',
       description: '',
+      expiryDate: '',
     }
   ]);
   
@@ -83,6 +84,7 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
       buyingPrice: '',
       initialQuantity: '',
       description: '',
+      expiryDate: '',
     }]);
   };
 
@@ -163,6 +165,7 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
         buyingPrice: parseFloat(variant.buyingPrice) || 0,
         initialQuantity: parseInt(variant.initialQuantity) || 0,
         description: variant.description || '',
+        expiryDate: variant.expiryDate || null,
       }));
 
       formData.append('variants', JSON.stringify(variantsData));
@@ -185,6 +188,7 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
         buyingPrice: '',
         initialQuantity: '',
         description: '',
+        expiryDate: '',
       }]);
     } catch (error) {
       console.error('Error creating item:', error);
@@ -349,7 +353,18 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
                       inputProps={{ min: 0 }}
                     />
                   </Grid>
-                  <Grid item xs={12}>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="Expiry Date"
+                      type="date"
+                      value={variant.expiryDate}
+                      onChange={(e) => handleVariantChange(variant.id, 'expiryDate', e.target.value)}
+                      size="small"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={8}>
                     <TextField
                       fullWidth
                       label="Description"

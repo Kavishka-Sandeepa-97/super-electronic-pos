@@ -158,13 +158,13 @@ router.post('/', (req, res) => {
     
     // Insert order items and update stock
     const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price) VALUES (?, ?, ?, ?)');
-    const getBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC');
+    const getBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY expire_date ASC, created_at ASC');
     const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
     
     for (const item of items) {
       insertItem.run(item.item_variant_id, orderId, item.qty, item.unit_price);
       
-      // Deduct stock using FIFO
+      // Deduct stock using FIFO (by expiry date first, then created date)
       const batches = getBatches.all(item.item_variant_id);
       let remainingQty = item.qty;
       
