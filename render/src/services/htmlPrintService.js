@@ -266,6 +266,189 @@ const htmlPrintService = {
     } catch (error) {
       return { success: false, message: error.message };
     }
+  },
+
+  // Print barcode labels for XP-H500B label printer (35mm x 20mm, 3 columns)
+  printBarcodeLabels: async (item, quantity = 1, printerName = null) => {
+    try {
+      const barcode = item.barcode || '';
+      const price = parseFloat(item.selling_price || item.price || 0);
+      const shopName = 'SUPER GLOW';
+      
+      // Get printer name from localStorage if not provided
+      const labelPrinter = printerName || localStorage.getItem('barcodePrinter') || 'Xprinter XP-H500B';
+      
+      // Label dimensions: 35mm x 20mm, 3 columns per row
+      // Total width: ~108mm (4.25 in), height per label: ~20mm (0.80 in)
+      const labelsPerRow = 3;
+      const totalRows = Math.ceil(quantity / labelsPerRow);
+      
+      // Generate HTML for barcode labels
+      const styles = `
+        <style>
+          @media print {
+            @page {
+              size: 4.25in 0.78in;
+              margin: 0;
+            }
+            body { margin: 0; padding: 0; }
+          }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { 
+            font-family: Arial, sans-serif; 
+            font-size: 8px;
+          }
+          .label-row {
+            display: flex;
+            width: 4.25in;
+            height: 0.78in;
+            page-break-after: always;
+            page-break-inside: avoid;
+            break-after: page;
+          }
+          .label {
+            width: 1.42in;
+            height: 0.76in;
+            padding: 0px 3px 2px 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            text-align: center;
+          }
+          .label:last-child {
+          }
+          .shop-name {
+            font-size: 10px;
+            font-weight: bold;
+            margin-top: -2px;
+          }
+          .barcode-container {
+            margin: 0px 0;
+          }
+          .barcode-container svg {
+            max-width: 0.95in;
+            height: 22px;
+          }
+          .barcode-number {
+            font-size: 7px;
+            font-family: monospace;
+            font-weight: 600;
+            margin-top: 0px;
+            color: #000;
+            letter-spacing: 2px;
+          }
+          .price {
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 2px;
+          }
+        </style>
+      `;
+
+      // Generate barcode SVG using Code128
+      const generateBarcodeSVG = (code) => {
+        if (!code) return '';
+        // Simple Code128 representation - using a web-based barcode generator approach
+        const barcodeId = 'bc_' + Math.random().toString(36).substr(2, 9);
+        return `<svg id="${barcodeId}" class="barcode"></svg>
+                <script>
+                  if (typeof JsBarcode !== 'undefined') {
+                    JsBarcode("#${barcodeId}", "${code}", {
+                      format: "CODE128",
+                      width: 1.5,
+                      height: 25,
+                      displayValue: false,
+                      margin: 0
+                    });
+                  }
+                </script>`;
+      };
+
+      // Build labels HTML
+      let labelsHtml = '';
+      let labelCount = 0;
+      
+      for (let row = 0; row < totalRows; row++) {
+        labelsHtml += '<div class="label-row">';
+        
+        for (let col = 0; col < labelsPerRow && labelCount < quantity; col++) {
+          labelsHtml += `
+            <div class="label">
+              <div class="shop-name">${shopName}</div>
+              <div class="barcode-container">
+                ${generateBarcodeSVG(barcode)}
+              </div>
+              <div class="barcode-number">${barcode}</div>
+              <div class="price">Rs. ${price.toFixed(2)}</div>
+            </div>
+          `;
+          labelCount++;
+        }
+        
+        // Fill remaining slots with empty labels if needed
+        const remaining = labelsPerRow - (labelCount % labelsPerRow || labelsPerRow);
+        if (labelCount >= quantity && remaining < labelsPerRow) {
+          for (let i = 0; i < remaining; i++) {
+            labelsHtml += '<div class="label"></div>';
+          }
+        }
+        
+        labelsHtml += '</div>';
+      }
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Barcode Labels - ${barcode}</title>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+            ${styles}
+          </head>
+          <body>
+            ${labelsHtml}
+            <script>
+              // Generate all barcodes after page load
+              window.onload = function() {
+                document.querySelectorAll('.barcode').forEach(function(svg) {
+                  const id = svg.id;
+                  if (typeof JsBarcode !== 'undefined') {
+                    try {
+                      JsBarcode("#" + id, "${barcode}", {
+                        format: "CODE128",
+                        width: 1.5,
+                        height: 25,
+                        displayValue: false,
+                        margin: 0
+                      });
+                    } catch(e) { console.error(e); }
+                  }
+                });
+                // Auto print after short delay
+                setTimeout(function() {
+                  window.print();
+                }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `;
+
+      // Open print window
+      const printWindow = window.open('', '_blank', 'width=450,height=300');
+      if (!printWindow) {
+        return { success: false, message: 'Unable to open print window (pop-up blocked).' };
+      }
+
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+
+      return { success: true, message: `Printing ${quantity} barcode label(s)` };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
   }
 };
 

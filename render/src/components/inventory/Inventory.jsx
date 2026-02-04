@@ -68,6 +68,7 @@ import {
   ListAlt as ListAltIcon,
   ChevronRight as ChevronRightIcon,
   ArrowDropDown as ArrowDropDownIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -76,6 +77,7 @@ import api from '../../services/api';
 import SellPriceHistory from '../SellPriceHistory';
 import CategoryManagementMenu from './CategoryManagementMenu';
 import BrandManagementMenu from './BrandManagementMenu';
+import htmlPrintService from '../../services/htmlPrintService';
 // import AddItemWithVariants from './AddItemWithVariants';
 
 const getCategoryIcon = (categoryName) => {
@@ -862,6 +864,11 @@ const Inventory = () => {
   const [lowStockDialog, setLowStockDialog] = useState(false);
   const [outOfStockDialog, setOutOfStockDialog] = useState(false);
 
+  // Barcode print dialog states
+  const [barcodePrintDialog, setBarcodePrintDialog] = useState(false);
+  const [selectedItemForBarcode, setSelectedItemForBarcode] = useState(null);
+  const [barcodePrintQuantity, setBarcodePrintQuantity] = useState(1);
+
   // Add Item Variant dialog states
   const [addItemVariantDialog, setAddItemVariantDialog] = useState(false);
   const [newItemVariant, setNewItemVariant] = useState({
@@ -1482,6 +1489,37 @@ const Inventory = () => {
     }
   };
 
+  // Barcode print handlers
+  const handleOpenBarcodePrint = (item) => {
+    if (!item.barcode) {
+      toast.warning('This item does not have a barcode');
+      return;
+    }
+    setSelectedItemForBarcode(item);
+    setBarcodePrintQuantity(1);
+    setBarcodePrintDialog(true);
+  };
+
+  const handlePrintBarcodeLabels = async () => {
+    if (!selectedItemForBarcode) return;
+    
+    try {
+      const result = await htmlPrintService.printBarcodeLabels(
+        selectedItemForBarcode,
+        barcodePrintQuantity
+      );
+      
+      if (result.success) {
+        toast.success(result.message);
+        setBarcodePrintDialog(false);
+      } else {
+        toast.error(result.message || 'Failed to print barcode labels');
+      }
+    } catch (error) {
+      toast.error(`Print error: ${error.message}`);
+    }
+  };
+
   const filteredItems = useMemo(() => {
     return itemVariants.filter(item => {
       const itemName = item.item_name || item.name || '';
@@ -1683,6 +1721,7 @@ const Inventory = () => {
                       <IconButton
                         size="small"
                         onClick={() => handleEditItem(item)}
+                        title="Edit Item"
                       >
                         <EditIcon />
                       </IconButton>
@@ -1704,11 +1743,21 @@ const Inventory = () => {
                       </IconButton>
                       <IconButton
                         size="small"
+                        color="success"
+                        onClick={() => handleOpenBarcodePrint(item)}
+                        title="Print Barcode Labels"
+                        disabled={!item.barcode}
+                      >
+                        <PrintIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
                         color="primary"
                         onClick={() => {
                           setSelectedItemForHistory(item);
                           setPriceHistoryDialog(true);
                         }}
+                        title="Price History"
                       >
                         <HistoryIcon />
                       </IconButton>
@@ -1716,6 +1765,7 @@ const Inventory = () => {
                         size="small"
                         color="error"
                         onClick={() => handleDeleteItem(item.id)}
+                        title="Delete Item"
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -2871,6 +2921,85 @@ const Inventory = () => {
         <DialogActions>
           <Button onClick={() => setOutOfStockDialog(false)}>
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Barcode Print Dialog */}
+      <Dialog
+        open={barcodePrintDialog}
+        onClose={() => {
+          setBarcodePrintDialog(false);
+          setSelectedItemForBarcode(null);
+          setBarcodePrintQuantity(1);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Print Barcode Labels
+        </DialogTitle>
+        <DialogContent>
+          {selectedItemForBarcode && (
+            <Box sx={{ pt: 2 }}>
+              <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                <Typography variant="subtitle1" fontWeight="bold">
+                  {selectedItemForBarcode.item_name || selectedItemForBarcode.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedItemForBarcode.variant_name || selectedItemForBarcode.variant}
+                </Typography>
+                <Box sx={{ mt: 1, display: 'flex', gap: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Barcode:</strong> {selectedItemForBarcode.barcode}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Price:</strong> Rs. {parseFloat(selectedItemForBarcode.selling_price || selectedItemForBarcode.price || 0).toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+              <TextField
+                fullWidth
+                label="Number of Labels"
+                type="number"
+                value={barcodePrintQuantity}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setBarcodePrintQuantity('');
+                  } else {
+                    const num = parseInt(val);
+                    if (!isNaN(num)) {
+                      setBarcodePrintQuantity(Math.min(500, Math.max(1, num)));
+                    }
+                  }
+                }}
+                onBlur={() => {
+                  if (barcodePrintQuantity === '' || barcodePrintQuantity < 1) {
+                    setBarcodePrintQuantity(1);
+                  }
+                }}
+                inputProps={{ min: 1, max: 500 }}
+                helperText="Labels will be printed in 3-column layout (35mm x 20mm each)"
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setBarcodePrintDialog(false);
+            setSelectedItemForBarcode(null);
+            setBarcodePrintQuantity(1);
+          }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PrintIcon />}
+            onClick={handlePrintBarcodeLabels}
+          >
+            Print Labels
           </Button>
         </DialogActions>
       </Dialog>
