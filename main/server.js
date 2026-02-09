@@ -302,6 +302,61 @@ server.get('/api/stock/batches/:itemVariantId', (req, res) => {
   }
 });
 
+// Update stock batch
+server.put('/api/stock/:id', (req, res) => {
+  const db = getDatabase();
+  const { id } = req.params;
+  const { initial_qty, remaining_qty, buy_price, expire_date, description } = req.body;
+
+  try {
+    // Build dynamic update query based on provided fields
+    const updates = [];
+    const values = [];
+
+    if (initial_qty !== undefined) {
+      updates.push('initial_qty = ?');
+      values.push(parseFloat(initial_qty));
+    }
+    if (remaining_qty !== undefined) {
+      updates.push('remaining_qty = ?');
+      values.push(parseFloat(remaining_qty));
+    }
+    if (buy_price !== undefined) {
+      updates.push('buy_price = ?');
+      values.push(parseFloat(buy_price));
+    }
+    if (expire_date !== undefined) {
+      updates.push('expire_date = ?');
+      values.push(expire_date || null);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      values.push(description || null);
+    }
+    
+    updates.push('updated_at = ?');
+    values.push(getCurrentUTCTimestamp());
+
+    if (updates.length === 1) { // Only updated_at, no actual changes
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+    
+    const query = `UPDATE stock_batch SET ${updates.join(', ')} WHERE id = ?`;
+    const result = db.prepare(query).run(...values);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Stock batch not found' });
+    }
+
+    res.json({ message: 'Stock batch updated successfully' });
+  } catch (error) {
+    console.error('Error updating stock batch:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get stock movements/history for an item variant
 server.get('/api/stock/movements/:itemVariantId', (req, res) => {
   const db = getDatabase();

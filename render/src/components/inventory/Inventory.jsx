@@ -856,7 +856,10 @@ const Inventory = () => {
   const [editingStockBatch, setEditingStockBatch] = useState(null);
   const [editStockBatchData, setEditStockBatchData] = useState({
     initial_qty: '',
-    remaining_qty: ''
+    remaining_qty: '',
+    buy_price: '',
+    expire_date: '',
+    description: ''
   });
   const [savingStockBatch, setSavingStockBatch] = useState(false);
 
@@ -1271,10 +1274,19 @@ const Inventory = () => {
   };
 
   const handleEditStockBatch = (stockBatch) => {
+    // Admin-only check
+    if (user?.role !== 'admin') {
+      toast.error('Only administrators can edit stock batches');
+      return;
+    }
+    
     setEditingStockBatch(stockBatch);
     setEditStockBatchData({
       initial_qty: stockBatch.initial_qty || stockBatch.quantity || '',
-      remaining_qty: stockBatch.remaining_qty !== undefined ? stockBatch.remaining_qty : ''
+      remaining_qty: stockBatch.remaining_qty !== undefined ? stockBatch.remaining_qty : '',
+      buy_price: stockBatch.buy_price || '',
+      expire_date: stockBatch.expire_date ? stockBatch.expire_date.split('T')[0] : '',
+      description: stockBatch.description || ''
     });
     setEditStockBatchDialog(true);
   };
@@ -1287,9 +1299,15 @@ const Inventory = () => {
 
     const initialQty = parseFloat(editStockBatchData.initial_qty);
     const remainingQty = parseFloat(editStockBatchData.remaining_qty);
+    const buyPrice = editStockBatchData.buy_price ? parseFloat(editStockBatchData.buy_price) : undefined;
 
     if (isNaN(initialQty) || isNaN(remainingQty)) {
-      toast.error('Please enter valid numbers');
+      toast.error('Please enter valid numbers for quantities');
+      return;
+    }
+
+    if (buyPrice !== undefined && isNaN(buyPrice)) {
+      toast.error('Please enter a valid buying price');
       return;
     }
 
@@ -1311,12 +1329,31 @@ const Inventory = () => {
       return;
     }
 
+    // Validation: Buying price cannot be negative
+    if (buyPrice !== undefined && buyPrice < 0) {
+      toast.error('Buying price cannot be negative');
+      return;
+    }
+
     setSavingStockBatch(true);
     try {
-      await api.stock.updateBatch(editingStockBatch.id, {
+      const updateData = {
         initial_qty: initialQty,
         remaining_qty: remainingQty
-      });
+      };
+
+      // Add optional fields only if they have values
+      if (buyPrice !== undefined) {
+        updateData.buy_price = buyPrice;
+      }
+      if (editStockBatchData.expire_date) {
+        updateData.expire_date = editStockBatchData.expire_date;
+      }
+      if (editStockBatchData.description) {
+        updateData.description = editStockBatchData.description;
+      }
+
+      await api.stock.updateBatch(editingStockBatch.id, updateData);
 
       toast.success('Stock batch updated successfully');
       setEditStockBatchDialog(false);
@@ -1335,7 +1372,15 @@ const Inventory = () => {
   };
 
   const filteredStockData = useMemo(() => {
-    const dataSource = stockFilters.type === 'stockIn' ? stockBatchData : stockMovementsData;
+    let dataSource;
+    
+    if (stockFilters.type === 'stockIn') {
+      // For Stock In, use the stock batch data
+      dataSource = stockBatchData;
+    } else {
+      // For Stock Out (sales), filter movements to show only OUT type
+      dataSource = stockMovementsData.filter(movement => movement.type === 'OUT');
+    }
     
     let filtered = dataSource;
 
@@ -1972,10 +2017,10 @@ const Inventory = () => {
               />
             </Grid>
 
-            {/* Category Image Section */}
+            {/* Item Image Section */}
             <Grid item xs={12}>
               <Typography variant="subtitle1" gutterBottom>
-                Category Image
+                Item Image
               </Typography>
               <Box display="flex" alignItems="center" gap={2}>
                 {/* Image Preview */}
@@ -2364,6 +2409,11 @@ const Inventory = () => {
                   Click on any stock-in row to edit initial and remaining quantities.
                 </Alert>
               )}
+              {stockFilters.type === 'sale' && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Stock Out shows items sold through completed orders. Items are automatically deducted from batches using FIFO (First In, First Out).
+                </Alert>
+              )}
               
               {/* Date Filters */}
               <Box display="flex" gap={2} mb={2} p={2} bgcolor="grey.50" borderRadius={1}>
@@ -2403,7 +2453,7 @@ const Inventory = () => {
                       color="success"
                     />
                   }
-                  label="Stock In"
+                  label="Stock In (Add Stock)"
                 />
                 <FormControlLabel
                   control={
@@ -2413,7 +2463,7 @@ const Inventory = () => {
                       color="error"
                     />
                   }
-                  label="Sale"
+                  label="Stock Out (Sales)"
                 />
               </Box>
 
@@ -2424,15 +2474,19 @@ const Inventory = () => {
                       <TableCell>Date</TableCell>
                       <TableCell>Type</TableCell>
                       {stockFilters.type === 'sale' && (
-                        <TableCell>Transaction Qty</TableCell>
+                        <>
+                          <TableCell>Quantity Sold</TableCell>
+                          <TableCell>Order ID</TableCell>
+                          <TableCell>Staff</TableCell>
+                        </>
                       )}
                       {stockFilters.type === 'stockIn' && (
                         <>
                           <TableCell>Initial Qty</TableCell>
                           <TableCell>Remaining Qty</TableCell>
+                          <TableCell>Expiry Date</TableCell>
                         </>
                       )}
-                      <TableCell>Reference</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -2465,13 +2519,27 @@ const Inventory = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={stockFilters.type === 'stockIn' ? 'Stock In' : 'Sale'}
+                              label={stockFilters.type === 'stockIn' ? 'Stock In' : 'Stock Out'}
                               color={stockFilters.type === 'stockIn' ? 'success' : 'error'}
                               size="small"
                             />
                           </TableCell>
                           {stockFilters.type === 'sale' && (
-                            <TableCell>{movement.quantity || 0}</TableCell>
+                            <>
+                              <TableCell>
+                                <Typography variant="body2" fontWeight="bold" color="error.main">
+                                  -{movement.quantity || 0}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={`#${movement.reference_id || '-'}`}
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell>{movement.staff_name || '-'}</TableCell>
+                            </>
                           )}
                           {stockFilters.type === 'stockIn' && (
                             <>
@@ -2481,9 +2549,11 @@ const Inventory = () => {
                                   {movement.remaining_qty !== undefined ? movement.remaining_qty : 'N/A'}
                                 </Typography>
                               </TableCell>
+                              <TableCell>
+                                {movement.expire_date ? new Date(movement.expire_date).toLocaleDateString() : '-'}
+                              </TableCell>
                             </>
                           )}
-                          <TableCell>{movement.id || movement.reference_id || '-'}</TableCell>
                         </TableRow>
                       ))
                     )}
@@ -2515,8 +2585,11 @@ const Inventory = () => {
                 Editing stock batch from {editingStockBatch.date ? new Date(editingStockBatch.date).toLocaleDateString() : editingStockBatch.created_at ? new Date(editingStockBatch.created_at).toLocaleDateString() : 'N/A'}
               </Alert>
             )}
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This feature is available for administrators only.
+            </Alert>
             <Grid container spacing={2}>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Initial Quantity"
@@ -2524,9 +2597,10 @@ const Inventory = () => {
                   value={editStockBatchData.initial_qty}
                   onChange={(e) => setEditStockBatchData({ ...editStockBatchData, initial_qty: e.target.value })}
                   inputProps={{ min: 0, step: 1 }}
+                  required
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Remaining Quantity"
@@ -2534,6 +2608,41 @@ const Inventory = () => {
                   value={editStockBatchData.remaining_qty}
                   onChange={(e) => setEditStockBatchData({ ...editStockBatchData, remaining_qty: e.target.value })}
                   inputProps={{ min: 0, step: 1 }}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Buying Price"
+                  type="number"
+                  value={editStockBatchData.buy_price}
+                  onChange={(e) => setEditStockBatchData({ ...editStockBatchData, buy_price: e.target.value })}
+                  inputProps={{ min: 0, step: 0.01 }}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">Rs.</InputAdornment>,
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Expiry Date"
+                  type="date"
+                  value={editStockBatchData.expire_date}
+                  onChange={(e) => setEditStockBatchData({ ...editStockBatchData, expire_date: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  multiline
+                  rows={2}
+                  value={editStockBatchData.description}
+                  onChange={(e) => setEditStockBatchData({ ...editStockBatchData, description: e.target.value })}
+                  placeholder="Optional notes about this stock batch"
                 />
               </Grid>
             </Grid>
