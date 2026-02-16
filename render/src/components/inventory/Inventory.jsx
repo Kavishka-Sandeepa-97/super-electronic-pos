@@ -885,6 +885,7 @@ const Inventory = () => {
     description: ''
   });
   const [itemSearchText, setItemSearchText] = useState('');
+  const [variantSearchText, setVariantSearchText] = useState('');
 
   // Generate random 9-digit barcode
   const generateRandomBarcode = () => {
@@ -1054,6 +1055,7 @@ const Inventory = () => {
       description: ''
     });
     setItemSearchText('');
+    setVariantSearchText('');
     setAddItemVariantDialog(true);
   };
 
@@ -2735,12 +2737,21 @@ const Inventory = () => {
                 onInputChange={(event, newInputValue) => {
                   setItemSearchText(newInputValue);
                 }}
+                filterOptions={(options, { inputValue }) => {
+                  const filter = inputValue.toLowerCase();
+                  return options.filter(option => 
+                    option.name.toLowerCase().includes(filter) ||
+                    option.category.toLowerCase().includes(filter) ||
+                    option.id.toString().includes(filter)
+                  );
+                }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
                     label="Select Item *"
-                    placeholder="Search for an item..."
+                    placeholder="Search by name, category or ID..."
                     required
+                    helperText="Type to search through items"
                   />
                 )}
                 renderOption={(props, option) => (
@@ -2748,30 +2759,61 @@ const Inventory = () => {
                     <Box>
                       <Typography variant="body1">{option.name}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {option.category}
+                        {option.category} • Item ID: {option.id}
                       </Typography>
                     </Box>
                   </Box>
                 )}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                noOptionsText="No items found"
               />
             </Grid>
 
             {/* Variant Selection */}
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth required>
-                <InputLabel>Variant *</InputLabel>
-                <Select
-                  value={newItemVariant.variant_id}
-                  label="Variant *"
-                  onChange={(e) => setNewItemVariant({ ...newItemVariant, variant_id: e.target.value })}
-                >
-                  {variants.map((variant) => (
-                    <MenuItem key={variant.id} value={variant.id}>
-                      {variant.variant_name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                options={variants}
+                getOptionLabel={(option) => option.variant_name || ''}
+                value={variants.find(variant => variant.id === newItemVariant.variant_id) || null}
+                onChange={(event, newValue) => {
+                  setNewItemVariant({
+                    ...newItemVariant,
+                    variant_id: newValue ? newValue.id : ''
+                  });
+                }}
+                inputValue={variantSearchText}
+                onInputChange={(event, newInputValue) => {
+                  setVariantSearchText(newInputValue);
+                }}
+                filterOptions={(options, { inputValue }) => {
+                  const filter = inputValue.toLowerCase();
+                  return options.filter(option => 
+                    option.variant_name.toLowerCase().includes(filter) ||
+                    option.id.toString().includes(filter)
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Select Variant *"
+                    placeholder="Search by variant name or ID..."
+                    required
+                    helperText="Type to search through variants"
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <Box component="li" {...props}>
+                    <Box>
+                      <Typography variant="body1">{option.variant_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Variant ID: {option.id}
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                noOptionsText="No variants found"
+              />
             </Grid>
 
             {/* Barcode with regenerate button */}
