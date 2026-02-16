@@ -45,7 +45,6 @@ import {
   CardMedia,
   Autocomplete,
   Radio,
-  Menu,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -66,10 +65,8 @@ import {
   History as HistoryIcon,
   Refresh as RefreshIcon,
   ListAlt as ListAltIcon,
-  ChevronRight as ChevronRightIcon,
-  ArrowDropDown as ArrowDropDownIcon,
   Print as PrintIcon,
-} from '@mui/icons-material';
+} from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { fetchCategories, fetchVariants, fetchItemVariants } from '../../store/slices/inventorySlice';
@@ -88,19 +85,6 @@ const getCategoryIcon = (categoryName) => {
     'Other': '📦'
   };
   return iconMap[categoryName] || '📦';
-};
-
-// Helper function to flatten categories for display
-const flattenCategories = (categories, prefix = '') => {
-  let result = [];
-  categories.forEach(cat => {
-    const displayName = prefix ? `${prefix} > ${cat.name}` : cat.name;
-    result.push({ ...cat, displayName });
-    if (cat.subcategories && cat.subcategories.length > 0) {
-      result = result.concat(flattenCategories(cat.subcategories, displayName));
-    }
-  });
-  return result;
 };
 
 const ItemManagement = React.memo(({
@@ -789,7 +773,6 @@ const Inventory = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [itemSearchTerm, setItemSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [addItemDialog, setAddItemDialog] = useState(false);
   const [editItemDialog, setEditItemDialog] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -1579,10 +1562,9 @@ const Inventory = () => {
         categoryName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         barcodeValue.includes(searchTerm);
 
-      const matchesCategory = selectedCategory === 'all' || categoryName === selectedCategory;
-      return matchesSearch && matchesCategory;
+      return matchesSearch;
     });
-  }, [itemVariants, searchTerm, selectedCategory]);
+  }, [itemVariants, searchTerm]);
 
   const lowStockItems = itemVariants.filter(item => {
     const stock = item.total_stock || item.stock || 0;
@@ -1696,20 +1678,6 @@ const Inventory = () => {
             }}
             sx={{ flexGrow: 1 }}
           />
-          <TextField
-            select
-            label="Category"
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            sx={{ minWidth: 150 }}
-          >
-            <MenuItem value="all">All Categories</MenuItem>
-            {categories.map((category) => (
-              <MenuItem key={category.id} value={category.name}>
-                {category.name}
-              </MenuItem>
-            ))}
-          </TextField>
           <Tooltip title="Refresh items">
             <IconButton
               onClick={() => {
