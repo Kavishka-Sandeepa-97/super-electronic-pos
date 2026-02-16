@@ -66,7 +66,7 @@ import {
   Refresh as RefreshIcon,
   ListAlt as ListAltIcon,
   Print as PrintIcon,
-} from '@mui/material';
+} from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { fetchCategories, fetchVariants, fetchItemVariants } from '../../store/slices/inventorySlice';
