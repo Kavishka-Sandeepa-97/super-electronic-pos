@@ -13,7 +13,8 @@ router.get('/', (req, res) => {
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price,
              sph.selling_price,
-             i.id as item_id_ref
+             i.id as item_id_ref,
+             COALESCE(iv.created_at, i.created_at) as created_at
       FROM item i
       LEFT JOIN item_variant iv ON i.id = iv.item_id
       LEFT JOIN variant v ON iv.variant_id = v.id
@@ -26,7 +27,7 @@ router.get('/', (req, res) => {
         FROM sell_price_history
       ) sph ON iv.id = sph.item_variant_id AND sph.rn = 1
       GROUP BY i.id, iv.id
-      ORDER BY i.name, v.variant_name
+      ORDER BY COALESCE(iv.created_at, i.created_at) DESC, i.name, v.variant_name
     `).all();
     res.json(rows);
   } catch (err) {

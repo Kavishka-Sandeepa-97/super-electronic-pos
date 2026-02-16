@@ -1739,6 +1739,7 @@ const Inventory = () => {
                 <TableCell>Stock</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Barcode</TableCell>
+                <TableCell>Date Added</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -1764,6 +1765,9 @@ const Inventory = () => {
                       />
                     </TableCell>
                     <TableCell>{item.barcode || '-'}</TableCell>
+                    <TableCell>
+                      {item.created_at ? new Date(item.created_at).toLocaleString() : '-'}
+                    </TableCell>
                     <TableCell>
                       <IconButton
                         size="small"
