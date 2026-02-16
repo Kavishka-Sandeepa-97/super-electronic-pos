@@ -258,14 +258,14 @@ router.get('/barcode/:barcode', (req, res) => {
 router.post('/:id/price', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { selling_price, staff_id, stock_batch_id } = req.body;
+  const { selling_price, staff_id } = req.body;
 
   if (!selling_price || !staff_id) {
     return res.status(400).json({ error: 'Selling price and staff ID are required' });
   }
 
   try {
-    const result = db.prepare('INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, stock_batch_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, staff_id, selling_price, stock_batch_id, getCurrentUTCTimestamp());
+    const result = db.prepare('INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)').run(id, staff_id, selling_price, getCurrentUTCTimestamp());
     res.status(201).json({
       id: result.lastInsertRowid,
       item_variant_id: id,

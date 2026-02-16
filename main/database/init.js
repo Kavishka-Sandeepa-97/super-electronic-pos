@@ -36,7 +36,71 @@ const initializeDatabase = () => {
   }
 };
 
+// Database migration function to handle schema changes
+const runMigrations = () => {
+  try {
+    // Create migrations tracking table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version TEXT PRIMARY KEY,
+        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Migration v1.2: Remove stock_batch_id column
+    const removeStockBatchMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.2_remove_stock_batch_id');
+    
+    if (!removeStockBatchMigration) {
+      // Check if column exists (for existing databases)
+      const tableInfo = db.pragma('table_info(sell_price_history)');
+      const hasStockBatchId = tableInfo.some(column => column.name === 'stock_batch_id');
+      
+      if (hasStockBatchId) {
+        console.log('Running migration v1.2: Removing stock_batch_id column from sell_price_history table...');
+        
+        // SQLite doesn't support DROP COLUMN, so we recreate the table
+        db.exec(`
+          -- Create new table without stock_batch_id
+          CREATE TABLE sell_price_history_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_variant_id INTEGER NOT NULL,
+            staff_id INTEGER NOT NULL,
+            selling_price DECIMAL(10,2) NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+          );
+          
+          -- Copy data from old table (excluding stock_batch_id)
+          INSERT INTO sell_price_history_new (id, item_variant_id, staff_id, selling_price, created_at, updated_at)
+          SELECT id, item_variant_id, staff_id, selling_price, created_at, updated_at 
+          FROM sell_price_history;
+          
+          -- Drop old table
+          DROP TABLE sell_price_history;
+          
+          -- Rename new table
+          ALTER TABLE sell_price_history_new RENAME TO sell_price_history;
+        `);
+        
+        console.log('Migration v1.2 completed successfully - stock_batch_id column removed');
+      }
+      
+      // Mark migration as completed
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.2_remove_stock_batch_id');
+    }
+
+  } catch (error) {
+    // If sell_price_history table doesn't exist yet, the migration will be handled by CREATE TABLE
+    console.log('Migration check completed:', error.message);
+  }
+};
+
 const createTables = () => {
+  // Run migrations first
+  runMigrations();
+  
   // Staff table
   db.exec(`
     CREATE TABLE IF NOT EXISTS staff (
@@ -163,12 +227,10 @@ const createTables = () => {
       item_variant_id INTEGER NOT NULL,
       staff_id INTEGER NOT NULL,
       selling_price DECIMAL(10,2) NOT NULL,
-      stock_batch_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
-      FOREIGN KEY (staff_id) REFERENCES staff(id),
-      FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
+      FOREIGN KEY (staff_id) REFERENCES staff(id)
     )
   `);
 
