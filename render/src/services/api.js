@@ -780,6 +780,11 @@ export const reportsAPI = {
     const queryString = new URLSearchParams(params).toString();
     return makeRequest(`/reports/stock/supplier-purchases?${queryString}`);
   },
+
+  getInventoryValuation: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    return makeRequest(`/reports/stock/valuation?${queryString}`);
+  },
 };
 
 // Database API

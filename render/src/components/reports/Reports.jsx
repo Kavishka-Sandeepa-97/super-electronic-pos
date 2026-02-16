@@ -56,13 +56,14 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState(0);
-  const [period, setPeriod] = useState('month');
+  const [period, setPeriod] = useState('all');
   const [startDate, setStartDate] = useState(dayjs().subtract(1, 'month'));
   const [endDate, setEndDate] = useState(dayjs());
   const [revenueData, setRevenueData] = useState([]);
   const [topProductsData, setTopProductsData] = useState([]);
   const [categorySalesData, setCategorySalesData] = useState([]);
   const [productDetailsData, setProductDetailsData] = useState([]);
+  const [inventoryValuation, setInventoryValuation] = useState({ data: [], summary: {} });
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -74,21 +75,24 @@ const Reports = () => {
       if (period === 'custom') {
         params.start_date = startDate.format('YYYY-MM-DD');
         params.end_date = endDate.format('YYYY-MM-DD');
-      } else {
+      } else if (period !== 'all') {
         params.period = period;
       }
+      // For 'all' period, we don't add any date parameters
 
-      const [revenueRes, topProductsRes, categorySalesRes, productDetailsRes] = await Promise.all([
+      const [revenueRes, topProductsRes, categorySalesRes, productDetailsRes, inventoryValuationRes] = await Promise.all([
         reportsAPI.getRevenue(params),
         reportsAPI.getTopProducts({ ...params, limit: 10 }),
         reportsAPI.getCategorySales(params),
         reportsAPI.getTopProducts({ ...params, limit: 100 }), // Get all products for details view
+        reportsAPI.getInventoryValuation(params), // Now includes date filtering
       ]);
 
       setRevenueData(revenueRes.data || []);
       setTopProductsData(topProductsRes.data || []);
       setCategorySalesData(categorySalesRes.data || []);
       setProductDetailsData(productDetailsRes.data || []);
+      setInventoryValuation(inventoryValuationRes || { data: [], summary: {} });
     } catch (error) {
       console.error('Error fetching reports:', error);
       toast.error('Failed to load reports data');
@@ -148,6 +152,13 @@ const Reports = () => {
           ).join('\n');
         filename = 'category_sales_report.csv';
         break;
+      case 'inventory':
+        csvContent = 'Item,Variant,Brand,Category,Barcode,Stock,Avg Buy Price,Selling Price,Investment,Pot Revenue,Pot Profit,Margin %\n' +
+          inventoryValuation.data.map(row =>
+            `"${row.item_name}","${row.variant_name}","${row.brand_name || ''}","${row.category_name}","${row.barcode || ''}",${row.current_stock},${row.avg_buy_price || 0},${row.current_selling_price || 0},${row.total_cost_investment || 0},${row.potential_revenue || 0},${row.potential_profit || 0},${row.profit_margin_percent || 0}`
+          ).join('\n');
+        filename = 'inventory_valuation_report.csv';
+        break;
     }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -188,6 +199,7 @@ const Reports = () => {
                 <FormControl fullWidth>
                   <InputLabel>Period</InputLabel>
                   <Select value={period} onChange={handlePeriodChange}>
+                    <MenuItem value="all">All Time</MenuItem>
                     <MenuItem value="today">Today</MenuItem>
                     <MenuItem value="week">This Week</MenuItem>
                     <MenuItem value="month">This Month</MenuItem>
@@ -267,6 +279,7 @@ const Reports = () => {
             <Tab label="Top Products" />
             <Tab label="Category Sales" />
             <Tab label="Product Details" />
+            <Tab label="Stock Valuation" />
           </Tabs>
 
           <CardContent>
@@ -553,6 +566,176 @@ const Reports = () => {
                           <TableCell align="right">{row.order_count}</TableCell>
                           <TableCell align="right">
                             {formatCurrency(row.total_revenue / row.order_count)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {activeTab === 4 && (
+              <Box>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Box>
+                    <Typography variant="h6">Inventory Valuation Report</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {period === 'all' ? 'All stock purchases' : 
+                       period === 'custom' ? `Stock purchased from ${startDate.format('MMM DD')} to ${endDate.format('MMM DD, YYYY')}` :
+                       `Stock purchased in the last ${period}`}
+                    </Typography>
+                  </Box>
+                  <Tooltip title="Download CSV">
+                    <IconButton onClick={() => handleDownloadReport('inventory')}>
+                      <DownloadIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                {/* Summary Cards */}
+                <Grid container spacing={2} mb={3}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'primary.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="primary.main">
+                          {inventoryValuation.summary?.total_items || 0}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Total Items
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'info.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="info.main">
+                          {inventoryValuation.summary?.total_stock_units || 0}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Units in Stock
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'warning.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="warning.main">
+                          {formatCurrency(inventoryValuation.summary?.total_investment || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Total Investment
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Card sx={{ bgcolor: 'success.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="success.main">
+                          {formatCurrency(inventoryValuation.summary?.total_potential_revenue || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Potential Revenue
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {/* Profit Summary */}
+                <Grid container spacing={2} mb={3}>
+                  <Grid item xs={12} sm={6}>
+                    <Card sx={{ bgcolor: inventoryValuation.summary?.total_potential_profit > 0 ? 'success.light' : 'error.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color={inventoryValuation.summary?.total_potential_profit > 0 ? 'success.main' : 'error.main'}>
+                          {formatCurrency(inventoryValuation.summary?.total_potential_profit || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Potential Profit
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Card sx={{ bgcolor: 'secondary.light' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="secondary.main">
+                          {inventoryValuation.summary?.overall_profit_margin || 0}%
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Overall Margin
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                {/* Detailed Table */}
+                <TableContainer component={Paper}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Item</TableCell>
+                        <TableCell>Category</TableCell>
+                        <TableCell>Barcode</TableCell>
+                        <TableCell align="right">Stock</TableCell>
+                        <TableCell align="right">Avg Buy Price</TableCell>
+                        <TableCell align="right">Selling Price</TableCell>
+                        <TableCell align="right">Investment</TableCell>
+                        <TableCell align="right">Pot. Revenue</TableCell>
+                        <TableCell align="right">Pot. Profit</TableCell>
+                        <TableCell align="right">Margin %</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {inventoryValuation.data?.map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>
+                            <Box>
+                              <Typography variant="body2" fontWeight="bold">
+                                {item.item_name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {item.variant_name}
+                                {item.brand_name && ` - ${item.brand_name}`}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>{item.category_name}</TableCell>
+                          <TableCell>
+                            <Chip label={item.barcode || 'No Barcode'} size="small" variant="outlined" />
+                          </TableCell>
+                          <TableCell align="right">{item.current_stock}</TableCell>
+                          <TableCell align="right">{formatCurrency(item.avg_buy_price || 0)}</TableCell>
+                          <TableCell align="right">{formatCurrency(item.current_selling_price || 0)}</TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="warning.main" fontWeight="bold">
+                              {formatCurrency(item.total_cost_investment || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="success.main" fontWeight="bold">
+                              {formatCurrency(item.potential_revenue || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography 
+                              variant="body2" 
+                              color={item.potential_profit > 0 ? 'success.main' : 'error.main'}
+                              fontWeight="bold"
+                            >
+                              {formatCurrency(item.potential_profit || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Chip 
+                              label={`${item.profit_margin_percent || 0}%`}
+                              color={item.profit_margin_percent > 30 ? 'success' : item.profit_margin_percent > 15 ? 'warning' : 'error'}
+                              size="small"
+                            />
                           </TableCell>
                         </TableRow>
                       ))}
