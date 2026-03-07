@@ -29,6 +29,7 @@ import {
   TrendingUp as TrendingUpIcon,
   ShoppingCart as ShoppingCartIcon,
   Category as CategoryIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -65,6 +66,7 @@ const Reports = () => {
   const [productDetailsData, setProductDetailsData] = useState([]);
   const [inventoryValuation, setInventoryValuation] = useState({ data: [], summary: {} });
   const [searchTerm, setSearchTerm] = useState('');
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
 
   const fetchReportsData = async () => {
@@ -153,9 +155,9 @@ const Reports = () => {
         filename = 'category_sales_report.csv';
         break;
       case 'inventory':
-        csvContent = 'Item,Variant,Brand,Category,Barcode,Stock,Avg Buy Price,Selling Price,Investment,Pot Revenue,Pot Profit,Margin %\n' +
+        csvContent = 'Item,Variant,Brand,Category,Barcode,Stock,Avg Buy Price,Selling Price,Investment,Pot Revenue,Pot Profit,Profit %\n' +
           inventoryValuation.data.map(row =>
-            `"${row.item_name}","${row.variant_name}","${row.brand_name || ''}","${row.category_name}","${row.barcode || ''}",${row.current_stock},${row.avg_buy_price || 0},${row.current_selling_price || 0},${row.total_cost_investment || 0},${row.potential_revenue || 0},${row.potential_profit || 0},${row.profit_margin_percent || 0}`
+            `"${row.item_name}","${row.variant_name}","${row.brand_name || ''}","${row.category_name}","${row.barcode || ''}",${row.current_stock},${row.avg_buy_price || 0},${row.current_selling_price || 0},${row.total_cost_investment || 0},${row.potential_revenue || 0},${row.potential_profit || 0},${row.avg_buy_price > 0 ? (((row.current_selling_price - row.avg_buy_price) / row.avg_buy_price) * 100).toFixed(1) : 0}`
           ).join('\n');
         filename = 'inventory_valuation_report.csv';
         break;
@@ -675,6 +677,23 @@ const Reports = () => {
 
                 {/* Detailed Table */}
                 <TableContainer component={Paper}>
+                  {/* Search Bar */}
+                  <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <TextField
+                      size="small"
+                      placeholder="Search by item name, variant, category or barcode..."
+                      value={inventorySearchTerm}
+                      onChange={(e) => setInventorySearchTerm(e.target.value)}
+                      InputProps={{
+                        startAdornment: (
+                          <Box component="span" sx={{ mr: 1, color: 'text.secondary', display: 'flex' }}>
+                            <SearchIcon fontSize="small" />
+                          </Box>
+                        ),
+                      }}
+                      sx={{ width: { xs: '100%', sm: 400 } }}
+                    />
+                  </Box>
                   <Table>
                     <TableHead>
                       <TableRow>
@@ -687,11 +706,21 @@ const Reports = () => {
                         <TableCell align="right">Investment</TableCell>
                         <TableCell align="right">Pot. Revenue</TableCell>
                         <TableCell align="right">Pot. Profit</TableCell>
-                        <TableCell align="right">Margin %</TableCell>
+                        <TableCell align="right">Profit %</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {inventoryValuation.data?.map((item, index) => (
+                      {inventoryValuation.data?.filter(item => {
+                        if (!inventorySearchTerm.trim()) return true;
+                        const q = inventorySearchTerm.toLowerCase();
+                        return (
+                          (item.item_name || '').toLowerCase().includes(q) ||
+                          (item.variant_name || '').toLowerCase().includes(q) ||
+                          (item.category_name || '').toLowerCase().includes(q) ||
+                          (item.brand_name || '').toLowerCase().includes(q) ||
+                          (item.barcode || '').toLowerCase().includes(q)
+                        );
+                      }).map((item, index) => (
                         <TableRow key={index}>
                           <TableCell>
                             <Box>
@@ -732,8 +761,8 @@ const Reports = () => {
                           </TableCell>
                           <TableCell align="right">
                             <Chip 
-                              label={`${item.profit_margin_percent || 0}%`}
-                              color={item.profit_margin_percent > 30 ? 'success' : item.profit_margin_percent > 15 ? 'warning' : 'error'}
+                              label={`${item.avg_buy_price > 0 ? (((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100).toFixed(1) : 0}%`}
+                              color={item.avg_buy_price > 0 && ((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100 > 50 ? 'success' : item.avg_buy_price > 0 && ((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100 > 20 ? 'warning' : 'error'}
                               size="small"
                             />
                           </TableCell>
