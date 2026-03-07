@@ -25,6 +25,7 @@ import {
   Remove as RemoveIcon,
   PhotoCamera as PhotoCameraIcon,
   Close as CloseIcon,
+  LocalOffer as LocalOfferIcon,
 } from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
@@ -50,6 +51,9 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
       initialQuantity: '',
       description: '',
       expiryDate: '',
+      isDiscountActive: false,
+      discountType: 'percentage',
+      discountValue: '',
     }
   ]);
   
@@ -85,6 +89,9 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
       initialQuantity: '',
       description: '',
       expiryDate: '',
+      isDiscountActive: false,
+      discountType: 'percentage',
+      discountValue: '',
     }]);
   };
 
@@ -166,6 +173,9 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
         initialQuantity: parseInt(variant.initialQuantity) || 0,
         description: variant.description || '',
         expiryDate: variant.expiryDate || null,
+        isDiscountActive: variant.isDiscountActive || false,
+        discountType: variant.discountType || 'percentage',
+        discountValue: parseFloat(variant.discountValue) || 0,
       }));
 
       formData.append('variants', JSON.stringify(variantsData));
@@ -189,6 +199,9 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
         initialQuantity: '',
         description: '',
         expiryDate: '',
+        isDiscountActive: false,
+        discountType: 'percentage',
+        discountValue: '',
       }]);
     } catch (error) {
       console.error('Error creating item:', error);
@@ -375,6 +388,63 @@ const AddItemWithVariants = ({ open, onClose, categories, variants }) => {
                       size="small"
                     />
                   </Grid>
+
+                  {/* Discount Section */}
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                      <LocalOfferIcon color="secondary" fontSize="small" />
+                      <Typography variant="subtitle2" color="secondary">Discount Settings</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Discount Active</InputLabel>
+                      <Select
+                        value={variant.isDiscountActive ? 'yes' : 'no'}
+                        onChange={(e) => handleVariantChange(variant.id, 'isDiscountActive', e.target.value === 'yes')}
+                        label="Discount Active"
+                      >
+                        <MenuItem value="no">No</MenuItem>
+                        <MenuItem value="yes">Yes</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <FormControl fullWidth size="small" disabled={!variant.isDiscountActive}>
+                      <InputLabel>Discount Type</InputLabel>
+                      <Select
+                        value={variant.discountType || 'percentage'}
+                        onChange={(e) => handleVariantChange(variant.id, 'discountType', e.target.value)}
+                        label="Discount Type"
+                      >
+                        <MenuItem value="fixed">Fixed (Rs.)</MenuItem>
+                        <MenuItem value="percentage">Percentage (%)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <TextField
+                      fullWidth
+                      label={variant.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
+                      type="number"
+                      value={variant.discountValue}
+                      onChange={(e) => handleVariantChange(variant.id, 'discountValue', e.target.value)}
+                      size="small"
+                      disabled={!variant.isDiscountActive}
+                      inputProps={{ min: 0, step: 0.01 }}
+                    />
+                  </Grid>
+                  {variant.isDiscountActive && variant.sellingPrice && variant.discountValue ? (
+                    <Grid item xs={12} sm={3}>
+                      <Alert severity="info" sx={{ py: 0 }}>
+                        Final: Rs. {variant.discountType === 'percentage'
+                          ? (parseFloat(variant.sellingPrice) - (parseFloat(variant.sellingPrice) * parseFloat(variant.discountValue) / 100)).toFixed(2)
+                          : (parseFloat(variant.sellingPrice) - parseFloat(variant.discountValue)).toFixed(2)
+                        }
+                      </Alert>
+                    </Grid>
+                  ) : null}
                 </Grid>
               </CardContent>
             </Card>

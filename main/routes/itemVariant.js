@@ -14,7 +14,8 @@ router.get('/', (req, res) => {
              sph.selling_price,
              sph.selling_price,
              i.id as item_id_ref,
-             COALESCE(iv.created_at, i.created_at) as created_at
+             COALESCE(iv.created_at, i.created_at) as created_at,
+             iv.is_discount_active, iv.discount_type, iv.discount_value
       FROM item i
       LEFT JOIN item_variant iv ON i.id = iv.item_id
       LEFT JOIN variant v ON iv.variant_id = v.id
@@ -46,7 +47,8 @@ router.get('/:id', (req, res) => {
              i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-             sph.selling_price
+             sph.selling_price,
+             iv.is_discount_active, iv.discount_type, iv.discount_value
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id
@@ -93,7 +95,8 @@ router.post('/', (req, res) => {
       return res.status(404).json({ error: 'Item not found' });
     }
 
-    const result = db.prepare('INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)').run(variant_id, item_id, barcode, getCurrentUTCTimestamp());
+    const { is_discount_active, discount_type, discount_value } = req.body;
+    const result = db.prepare('INSERT INTO item_variant (variant_id, item_id, barcode, is_discount_active, discount_type, discount_value, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(variant_id, item_id, barcode, is_discount_active ? 1 : 0, discount_type || null, parseFloat(discount_value) || 0, getCurrentUTCTimestamp());
     const newVariantId = result.lastInsertRowid;
 
     // If an initial selling price was provided, insert into sell_price_history
@@ -140,7 +143,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { variant_id, item_id, barcode } = req.body;
+  const { variant_id, item_id, barcode, is_discount_active, discount_type, discount_value } = req.body;
 
   let updateFields = [];
   let values = [];
@@ -156,6 +159,18 @@ router.put('/:id', (req, res) => {
   if (barcode !== undefined) {
     updateFields.push('barcode = ?');
     values.push(barcode);
+  }
+  if (is_discount_active !== undefined) {
+    updateFields.push('is_discount_active = ?');
+    values.push(is_discount_active ? 1 : 0);
+  }
+  if (discount_type !== undefined) {
+    updateFields.push('discount_type = ?');
+    values.push(discount_type || null);
+  }
+  if (discount_value !== undefined) {
+    updateFields.push('discount_value = ?');
+    values.push(parseFloat(discount_value) || 0);
   }
 
   if (updateFields.length === 0) {
@@ -213,7 +228,8 @@ router.get('/barcode/:barcode', (req, res) => {
     const row = db.prepare(`
       SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
              v.variant_name, c.name as category_name,
-             b.id as brand_id, b.brand_name as brand_name
+             b.id as brand_id, b.brand_name as brand_name,
+             iv.is_discount_active, iv.discount_type, iv.discount_value
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id

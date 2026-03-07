@@ -873,6 +873,16 @@ const Inventory = () => {
   const [itemSearchText, setItemSearchText] = useState('');
   const [variantSearchText, setVariantSearchText] = useState('');
 
+  // Global discount settings states
+  const [globalDiscountSettings, setGlobalDiscountSettings] = useState({
+    is_global_discount_active: false,
+    global_discount_type: 'percentage',
+    global_discount_value: 0,
+    min_order_amount: 0,
+  });
+  const [loadingGlobalDiscount, setLoadingGlobalDiscount] = useState(false);
+  const [savingGlobalDiscount, setSavingGlobalDiscount] = useState(false);
+
   // Generate random 9-digit barcode
   const generateRandomBarcode = () => {
     // Generate a valid EAN-8 style barcode (9 digits)
@@ -894,6 +904,41 @@ const Inventory = () => {
 
   const handleTabChange = (event, newValue) => {
     setCurrentTab(newValue);
+    if (newValue === 5) {
+      fetchGlobalDiscountSettings();
+    }
+  };
+
+  // Global Discount Settings functions
+  const fetchGlobalDiscountSettings = async () => {
+    setLoadingGlobalDiscount(true);
+    try {
+      const settings = await api.globalDiscount.get();
+      setGlobalDiscountSettings({
+        is_global_discount_active: settings.is_global_discount_active ? true : false,
+        global_discount_type: settings.global_discount_type || 'percentage',
+        global_discount_value: settings.global_discount_value || 0,
+        min_order_amount: settings.min_order_amount || 0,
+      });
+    } catch (error) {
+      console.error('Error fetching global discount settings:', error);
+      toast.error('Failed to load global discount settings');
+    } finally {
+      setLoadingGlobalDiscount(false);
+    }
+  };
+
+  const handleSaveGlobalDiscount = async () => {
+    setSavingGlobalDiscount(true);
+    try {
+      await api.globalDiscount.update(globalDiscountSettings);
+      toast.success('Global discount settings saved successfully');
+    } catch (error) {
+      console.error('Error saving global discount settings:', error);
+      toast.error('Failed to save global discount settings');
+    } finally {
+      setSavingGlobalDiscount(false);
+    }
   };
 
   // Category Management Functions
@@ -1038,7 +1083,10 @@ const Inventory = () => {
       buyingPrice: '',
       quantity: '',
       expireDate: '',
-      description: ''
+      description: '',
+      isDiscountActive: false,
+      discountType: 'percentage',
+      discountValue: '',
     });
     setItemSearchText('');
     setVariantSearchText('');
@@ -1064,7 +1112,10 @@ const Inventory = () => {
         variant_id: newItemVariant.variant_id,
         barcode: newItemVariant.barcode || null,
         selling_price: parseFloat(newItemVariant.sellingPrice),
-        staff_id: user?.id
+        staff_id: user?.id,
+        is_discount_active: newItemVariant.isDiscountActive || false,
+        discount_type: newItemVariant.discountType || 'percentage',
+        discount_value: parseFloat(newItemVariant.discountValue) || 0,
       });
 
       // 2. Create stock batch with the new item_variant_id
@@ -1432,6 +1483,9 @@ const Inventory = () => {
       buyingPrice: (item.buying_price || item.buyingPrice || '').toString(),
       initialQuantity: (item.total_stock || item.stock || '').toString(),
       description: item.description || '',
+      isDiscountActive: item.is_discount_active ? true : false,
+      discountType: item.discount_type || 'percentage',
+      discountValue: (item.discount_value || '').toString(),
     });
     setBarcodeInput(item.barcode || '');
     setEditItemDialog(true);
@@ -1468,6 +1522,9 @@ const Inventory = () => {
       formData.append('buyingPrice', newItem.buyingPrice);
       formData.append('initialQuantity', newItem.initialQuantity);
       formData.append('description', newItem.description);
+      formData.append('isDiscountActive', newItem.isDiscountActive ? '1' : '0');
+      formData.append('discountType', newItem.discountType || 'percentage');
+      formData.append('discountValue', newItem.discountValue || '0');
 
       if (newItem.image) {
         formData.append('image', newItem.image);
@@ -1914,6 +1971,7 @@ const Inventory = () => {
           <Tab label="Brands" />
           <Tab label="Variants" />
           <Tab label="ITEM" />
+          <Tab label="Global Discount" />
         </Tabs>
         <Button
           variant="contained"
@@ -1952,6 +2010,129 @@ const Inventory = () => {
           setItemSearchTerm={setItemSearchTerm}
           loading={loading}
         />
+      )}
+
+      {currentTab === 5 && (
+        <Box>
+          <Card sx={{ maxWidth: 700, mx: 'auto', mt: 2 }}>
+            <CardContent>
+              <Typography variant="h5" fontWeight="bold" gutterBottom>
+                Global Discount Settings
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Configure a global discount that applies to all orders meeting the minimum order amount.
+              </Typography>
+
+              {loadingGlobalDiscount ? (
+                <Box display="flex" justifyContent="center" p={4}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Grid container spacing={3}>
+                  {/* Discount Active */}
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel>Global Discount Active</InputLabel>
+                      <Select
+                        value={globalDiscountSettings.is_global_discount_active ? 'yes' : 'no'}
+                        label="Global Discount Active"
+                        onChange={(e) => setGlobalDiscountSettings({
+                          ...globalDiscountSettings,
+                          is_global_discount_active: e.target.value === 'yes',
+                        })}
+                      >
+                        <MenuItem value="no">No - Disabled</MenuItem>
+                        <MenuItem value="yes">Yes - Enabled</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Discount Type */}
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth disabled={!globalDiscountSettings.is_global_discount_active}>
+                      <InputLabel>Discount Type</InputLabel>
+                      <Select
+                        value={globalDiscountSettings.global_discount_type || 'percentage'}
+                        label="Discount Type"
+                        onChange={(e) => setGlobalDiscountSettings({
+                          ...globalDiscountSettings,
+                          global_discount_type: e.target.value,
+                        })}
+                      >
+                        <MenuItem value="fixed">Fixed Amount (Rs.)</MenuItem>
+                        <MenuItem value="percentage">Percentage (%)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Discount Value */}
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label={globalDiscountSettings.global_discount_type === 'percentage' ? 'Discount Value (%)' : 'Discount Value (Rs.)'}
+                      type="number"
+                      value={globalDiscountSettings.global_discount_value}
+                      onChange={(e) => setGlobalDiscountSettings({
+                        ...globalDiscountSettings,
+                        global_discount_value: e.target.value,
+                      })}
+                      disabled={!globalDiscountSettings.is_global_discount_active}
+                      inputProps={{ min: 0, step: 0.01 }}
+                    />
+                  </Grid>
+
+                  {/* Minimum Order Amount */}
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Minimum Order Amount (Rs.)"
+                      type="number"
+                      value={globalDiscountSettings.min_order_amount}
+                      onChange={(e) => setGlobalDiscountSettings({
+                        ...globalDiscountSettings,
+                        min_order_amount: e.target.value,
+                      })}
+                      disabled={!globalDiscountSettings.is_global_discount_active}
+                      inputProps={{ min: 0, step: 0.01 }}
+                      helperText="Global discount will only apply to orders above this amount. Set to 0 for no minimum."
+                    />
+                  </Grid>
+
+                  {/* Preview */}
+                  {globalDiscountSettings.is_global_discount_active && (
+                    <Grid item xs={12}>
+                      <Alert severity="info">
+                        {globalDiscountSettings.global_discount_type === 'percentage'
+                          ? `A ${globalDiscountSettings.global_discount_value}% discount will be applied to all orders`
+                          : `A Rs. ${parseFloat(globalDiscountSettings.global_discount_value || 0).toFixed(2)} discount will be applied to all orders`
+                        }
+                        {parseFloat(globalDiscountSettings.min_order_amount) > 0
+                          ? ` above Rs. ${parseFloat(globalDiscountSettings.min_order_amount).toFixed(2)}.`
+                          : '.'
+                        }
+                      </Alert>
+                    </Grid>
+                  )}
+
+                  {/* Save Button */}
+                  <Grid item xs={12}>
+                    <Box display="flex" justifyContent="flex-end">
+                      <Button
+                        variant="contained"
+                        onClick={handleSaveGlobalDiscount}
+                        disabled={savingGlobalDiscount}
+                        startIcon={savingGlobalDiscount ? <CircularProgress size={20} /> : <SaveIcon />}
+                        sx={{ px: 4 }}
+                      >
+                        {savingGlobalDiscount ? 'Saving...' : 'Save Settings'}
+                      </Button>
+                    </Box>
+                  </Grid>
+                </Grid>
+              )}
+            </CardContent>
+          </Card>
+        </Box>
       )}
 
       {/* Add Item with Variants Dialog - Commented out as we use simplified dialog now */}
@@ -2145,6 +2326,61 @@ const Inventory = () => {
                 }}
               />
             </Grid>
+
+            {/* Discount Settings */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" gutterBottom color="secondary">
+                Discount Settings
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth>
+                <InputLabel>Discount Active</InputLabel>
+                <Select
+                  value={newItem.isDiscountActive ? 'yes' : 'no'}
+                  label="Discount Active"
+                  onChange={(e) => setNewItem({ ...newItem, isDiscountActive: e.target.value === 'yes' })}
+                >
+                  <MenuItem value="no">No</MenuItem>
+                  <MenuItem value="yes">Yes</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth disabled={!newItem.isDiscountActive}>
+                <InputLabel>Discount Type</InputLabel>
+                <Select
+                  value={newItem.discountType || 'percentage'}
+                  label="Discount Type"
+                  onChange={(e) => setNewItem({ ...newItem, discountType: e.target.value })}
+                >
+                  <MenuItem value="fixed">Fixed (Rs.)</MenuItem>
+                  <MenuItem value="percentage">Percentage (%)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label={newItem.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
+                type="number"
+                value={newItem.discountValue || ''}
+                onChange={(e) => setNewItem({ ...newItem, discountValue: e.target.value })}
+                disabled={!newItem.isDiscountActive}
+                inputProps={{ min: 0, step: 0.01 }}
+              />
+            </Grid>
+            {newItem.isDiscountActive && newItem.sellingPrice && newItem.discountValue ? (
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  Final Price: Rs. {newItem.discountType === 'percentage'
+                    ? (parseFloat(newItem.sellingPrice) - (parseFloat(newItem.sellingPrice) * parseFloat(newItem.discountValue) / 100)).toFixed(2)
+                    : (parseFloat(newItem.sellingPrice) - parseFloat(newItem.discountValue)).toFixed(2)
+                  }
+                </Alert>
+              </Grid>
+            ) : null}
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -2878,6 +3114,61 @@ const Inventory = () => {
                 placeholder="Optional description..."
               />
             </Grid>
+
+            {/* Discount Settings */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" gutterBottom color="secondary" sx={{ fontWeight: 'bold' }}>
+                Discount Settings
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth>
+                <InputLabel>Discount Active</InputLabel>
+                <Select
+                  value={newItemVariant.isDiscountActive ? 'yes' : 'no'}
+                  label="Discount Active"
+                  onChange={(e) => setNewItemVariant({ ...newItemVariant, isDiscountActive: e.target.value === 'yes' })}
+                >
+                  <MenuItem value="no">No</MenuItem>
+                  <MenuItem value="yes">Yes</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth disabled={!newItemVariant.isDiscountActive}>
+                <InputLabel>Discount Type</InputLabel>
+                <Select
+                  value={newItemVariant.discountType || 'percentage'}
+                  label="Discount Type"
+                  onChange={(e) => setNewItemVariant({ ...newItemVariant, discountType: e.target.value })}
+                >
+                  <MenuItem value="fixed">Fixed (Rs.)</MenuItem>
+                  <MenuItem value="percentage">Percentage (%)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label={newItemVariant.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
+                type="number"
+                value={newItemVariant.discountValue}
+                onChange={(e) => setNewItemVariant({ ...newItemVariant, discountValue: e.target.value })}
+                disabled={!newItemVariant.isDiscountActive}
+                inputProps={{ min: 0, step: 0.01 }}
+              />
+            </Grid>
+            {newItemVariant.isDiscountActive && newItemVariant.sellingPrice && newItemVariant.discountValue ? (
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  Final Price: Rs. {newItemVariant.discountType === 'percentage'
+                    ? (parseFloat(newItemVariant.sellingPrice) - (parseFloat(newItemVariant.sellingPrice) * parseFloat(newItemVariant.discountValue) / 100)).toFixed(2)
+                    : (parseFloat(newItemVariant.sellingPrice) - parseFloat(newItemVariant.discountValue)).toFixed(2)
+                  }
+                </Alert>
+              </Grid>
+            ) : null}
           </Grid>
         </DialogContent>
         <DialogActions>

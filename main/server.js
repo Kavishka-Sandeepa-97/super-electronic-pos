@@ -183,7 +183,7 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
 
     // 3. Process each variant
     for (const variantData of variants) {
-      const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description, expiryDate } = variantData;
+      const { variantName, barcode, sellingPrice, buyingPrice, initialQuantity, description, expiryDate, isDiscountActive, discountType, discountValue } = variantData;
 
       if (!variantName || !sellingPrice) {
         throw new Error(`Variant ${variantName || 'unnamed'} is missing required fields`);
@@ -205,8 +205,8 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
       let item_variant_id;
       try {
         const ivResult = db.prepare(
-          'INSERT INTO item_variant (variant_id, item_id, barcode, created_at) VALUES (?, ?, ?, ?)'
-        ).run(variant_id, item_id, barcode, getCurrentUTCTimestamp());
+          'INSERT INTO item_variant (variant_id, item_id, barcode, is_discount_active, discount_type, discount_value, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(variant_id, item_id, barcode, isDiscountActive ? 1 : 0, discountType || null, parseFloat(discountValue) || 0, getCurrentUTCTimestamp());
         item_variant_id = ivResult.lastInsertRowid;
       } catch (err) {
         if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
@@ -404,7 +404,7 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
 server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description } = req.body;
+  const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description, isDiscountActive, discountType, discountValue } = req.body;
   const imagePath = req.file ? req.file.path : null;
 
   if (!name || !category || !variant || !sellingPrice) {
@@ -456,8 +456,8 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, r
     // 5. Update item_variant table
     const normalizedBarcode = (typeof barcode === 'string' && barcode.trim() === '') || barcode === undefined ? null : barcode;
     try {
-      db.prepare('UPDATE item_variant SET variant_id = ?, barcode = ? WHERE id = ?')
-        .run(variant_id, normalizedBarcode, id);
+      db.prepare('UPDATE item_variant SET variant_id = ?, barcode = ?, is_discount_active = ?, discount_type = ?, discount_value = ? WHERE id = ?')
+        .run(variant_id, normalizedBarcode, isDiscountActive === '1' || isDiscountActive === true ? 1 : 0, discountType || null, parseFloat(discountValue) || 0, id);
     } catch (err) {
       if (err.message.includes('UNIQUE constraint failed: item_variant.barcode')) {
         throw new Error('Barcode already exists. Please use a different barcode.');
@@ -588,6 +588,65 @@ server.use((err, req, res, next) => {
   }
 
   res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// ===== Global Discount Settings Routes =====
+
+// Get global discount settings
+server.get('/api/global-discount-settings', (req, res) => {
+  const db = getDatabase();
+  try {
+    let settings = db.prepare('SELECT * FROM global_discount_settings WHERE key_value = ?').get('default');
+    if (!settings) {
+      // Insert default settings
+      db.prepare('INSERT INTO global_discount_settings (key_value, is_global_discount_active, global_discount_type, global_discount_value, min_order_amount) VALUES (?, ?, ?, ?, ?)').run('default', 0, 'percentage', 0, 0);
+      settings = {
+        key_value: 'default',
+        is_global_discount_active: 0,
+        global_discount_type: 'percentage',
+        global_discount_value: 0,
+        min_order_amount: 0
+      };
+    }
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update global discount settings
+server.put('/api/global-discount-settings', (req, res) => {
+  const db = getDatabase();
+  const { is_global_discount_active, global_discount_type, global_discount_value, min_order_amount } = req.body;
+
+  try {
+    // Check if settings exist
+    const existing = db.prepare('SELECT key_value FROM global_discount_settings WHERE key_value = ?').get('default');
+    if (existing) {
+      db.prepare(`
+        UPDATE global_discount_settings 
+        SET is_global_discount_active = ?, global_discount_type = ?, global_discount_value = ?, min_order_amount = ?
+        WHERE key_value = ?
+      `).run(
+        is_global_discount_active ? 1 : 0,
+        global_discount_type || 'percentage',
+        parseFloat(global_discount_value) || 0,
+        parseFloat(min_order_amount) || 0,
+        'default'
+      );
+    } else {
+      db.prepare('INSERT INTO global_discount_settings (key_value, is_global_discount_active, global_discount_type, global_discount_value, min_order_amount) VALUES (?, ?, ?, ?, ?)').run(
+        'default',
+        is_global_discount_active ? 1 : 0,
+        global_discount_type || 'percentage',
+        parseFloat(global_discount_value) || 0,
+        parseFloat(min_order_amount) || 0
+      );
+    }
+    res.json({ message: 'Global discount settings updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = server;

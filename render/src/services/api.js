@@ -796,6 +796,19 @@ export const databaseAPI = {
   },
 };
 
+// Global Discount Settings API
+export const globalDiscountAPI = {
+  get: async () => {
+    return makeRequest('/global-discount-settings');
+  },
+  update: async (settings) => {
+    return makeRequest('/global-discount-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+};
+
 export default {
   auth: authAPI,
   staff: staffAPI,
@@ -812,4 +825,5 @@ export default {
   database: databaseAPI,
   offline: offlineUtils,
   enhanced: enhancedAPI,
+  globalDiscount: globalDiscountAPI,
 };

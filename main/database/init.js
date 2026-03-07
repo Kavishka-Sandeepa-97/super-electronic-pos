@@ -47,6 +47,26 @@ const runMigrations = () => {
       )
     `);
 
+    // Migration v1.3: Add discount columns to item_variant
+    const addDiscountMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.3_add_discount_columns');
+    
+    if (!addDiscountMigration) {
+      const tableInfo = db.pragma('table_info(item_variant)');
+      const hasDiscountType = tableInfo.some(column => column.name === 'discount_type');
+      
+      if (!hasDiscountType) {
+        console.log('Running migration v1.3: Adding discount columns to item_variant table...');
+        db.exec(`
+          ALTER TABLE item_variant ADD COLUMN is_discount_active BOOLEAN DEFAULT 0;
+          ALTER TABLE item_variant ADD COLUMN discount_type TEXT CHECK(discount_type IN ('fixed', 'percentage'));
+          ALTER TABLE item_variant ADD COLUMN discount_value DECIMAL(10,2) DEFAULT 0;
+        `);
+        console.log('Migration v1.3 completed successfully - discount columns added');
+      }
+      
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.3_add_discount_columns');
+    }
+
     // Migration v1.2: Remove stock_batch_id column
     const removeStockBatchMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.2_remove_stock_batch_id');
     
@@ -181,9 +201,23 @@ const createTables = () => {
       variant_id INTEGER NOT NULL,
       item_id INTEGER NOT NULL,
       barcode TEXT UNIQUE,
+      is_discount_active BOOLEAN DEFAULT 0,
+      discount_type TEXT CHECK(discount_type IN ('fixed', 'percentage')),
+      discount_value DECIMAL(10,2) DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (variant_id) REFERENCES variant(id),
       FOREIGN KEY (item_id) REFERENCES item(id)
+    )
+  `);
+
+  // Global Discount Settings table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS global_discount_settings (
+      key_value TEXT PRIMARY KEY,
+      is_global_discount_active BOOLEAN DEFAULT 0,
+      global_discount_type TEXT CHECK(global_discount_type IN ('fixed', 'percentage')),
+      global_discount_value DECIMAL(10,2) DEFAULT 0,
+      min_order_amount DECIMAL(10,2) DEFAULT 0
     )
   `);
 
