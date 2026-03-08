@@ -18,6 +18,8 @@ import {
   Divider,
   CircularProgress,
   Grid,
+  InputAdornment,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -25,6 +27,7 @@ import {
   Delete as DeleteIcon,
   Save as SaveIcon,
   Business as BusinessIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import api from '../../services/api';
@@ -32,6 +35,9 @@ import api from '../../services/api';
 const BrandManagementMenu = () => {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [brandDialog, setBrandDialog] = useState(false);
   const [editingBrand, setEditingBrand] = useState(null);
   const [brandFormData, setBrandFormData] = useState({ brand_name: '', description: '' });
@@ -140,6 +146,20 @@ const BrandManagementMenu = () => {
           </Button>
         </Box>
 
+        <TextField
+          placeholder="Search brands..."
+          value={searchText}
+          onChange={(e) => { setSearchText(e.target.value); setPage(0); }}
+          size="small"
+          sx={{ mb: 2, width: 280 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
         {loading && !brandDialog ? (
           <Box display="flex" justifyContent="center" p={3}>
             <CircularProgress />
@@ -153,33 +173,56 @@ const BrandManagementMenu = () => {
               Click "Add Brand" to create your first brand
             </Typography>
           </Box>
-        ) : (
-          <List>
-            {brands.map((brand) => (
-              <React.Fragment key={brand.id}>
-                <ListItem>
-                  <ListItemText
-                    primary={
-                      <Typography variant="body1" fontWeight="bold">
-                        {brand.brand_name}
-                      </Typography>
-                    }
-                    secondary={brand.description || 'No description'}
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleEditBrand(brand)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteBrand(brand)} color="error">
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-                <Divider />
-              </React.Fragment>
-            ))}
-          </List>
-        )}
+        ) : (() => {
+          const filtered = brands.filter(b =>
+            b.brand_name.toLowerCase().includes(searchText.toLowerCase()) ||
+            (b.description || '').toLowerCase().includes(searchText.toLowerCase())
+          );
+          const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+          return (
+            <>
+              <List>
+                {paginated.map((brand) => (
+                  <React.Fragment key={brand.id}>
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Typography variant="body1" fontWeight="bold">
+                            {brand.brand_name}
+                          </Typography>
+                        }
+                        secondary={brand.description || 'No description'}
+                      />
+                      <ListItemSecondaryAction>
+                        <IconButton edge="end" onClick={() => handleEditBrand(brand)}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton edge="end" onClick={() => handleDeleteBrand(brand)} color="error">
+                          <DeleteIcon />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                    <Divider />
+                  </React.Fragment>
+                ))}
+                {filtered.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
+                    No brands found
+                  </Typography>
+                )}
+              </List>
+              <TablePagination
+                component="div"
+                count={filtered.length}
+                page={page}
+                onPageChange={(_, newPage) => setPage(newPage)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                rowsPerPageOptions={[5, 10, 25]}
+              />
+            </>
+          );
+        })()}
       </CardContent>
 
       {/* Add/Edit Brand Dialog */}

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -17,9 +17,13 @@ import {
   Select,
   MenuItem,
   Alert,
+  Tooltip,
+  CircularProgress,
 } from '@mui/material';
-import { Add as AddIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import { Add as AddIcon, Refresh as RefreshIcon, AddCircleOutline as AddCircleOutlineIcon } from '@mui/icons-material';
 import { Autocomplete } from '@mui/material';
+import { toast } from 'react-toastify';
+import api from '../../services/api';
 
 const AddProductDialog = ({
   open,
@@ -34,7 +38,28 @@ const AddProductDialog = ({
   setVariantSearchText,
   onSave,
   onGenerateBarcode,
+  onVariantCreated,
 }) => {
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickVariantName, setQuickVariantName] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
+
+  const handleQuickAddVariant = async () => {
+    if (!quickVariantName.trim()) return;
+    setQuickAdding(true);
+    try {
+      const created = await api.variants.create({ variant_name: quickVariantName.trim() });
+      setNewItemVariant({ ...newItemVariant, variant_id: created.id });
+      onVariantCreated();
+      setQuickAddOpen(false);
+      setQuickVariantName('');
+      toast.success(`Variant "${created.variant_name}" added and selected`);
+    } catch (e) {
+      toast.error(`Failed to add variant: ${e.message}`);
+    } finally {
+      setQuickAdding(false);
+    }
+  };
   const uniqueItems = useMemo(() => {
     const seen = new Set();
     return itemVariants.reduce((acc, item) => {
@@ -52,7 +77,6 @@ const AddProductDialog = ({
   }, [itemVariants]);
 
   const selectedItem = uniqueItems.find(i => i.id === newItemVariant.item_id) || null;
-  const selectedVariant = variants.find(v => v.id === newItemVariant.variant_id) || null;
 
   return (
     <Dialog
@@ -103,35 +127,72 @@ const AddProductDialog = ({
 
           {/* Variant Selection */}
           <Grid item xs={12} sm={6}>
-            <Autocomplete
-              options={variants}
-              getOptionLabel={(option) => option.variant_name || ''}
-              value={selectedVariant}
-              onChange={(_, newValue) => setNewItemVariant({ ...newItemVariant, variant_id: newValue ? newValue.id : '' })}
-              inputValue={variantSearchText}
-              onInputChange={(_, newInputValue) => setVariantSearchText(newInputValue)}
-              filterOptions={(options, { inputValue }) => {
-                const filter = inputValue.toLowerCase();
-                return options.filter(o =>
-                  o.variant_name.toLowerCase().includes(filter) ||
-                  o.id.toString().includes(filter)
-                );
-              }}
-              renderInput={(params) => (
-                <TextField {...params} label="Select Variant *" placeholder="Search by variant name or ID..." required helperText="Type to search through variants" />
-              )}
-              renderOption={(props, option) => (
-                <Box component="li" {...props}>
-                  <Box>
-                    <Typography variant="body1">{option.variant_name}</Typography>
-                    <Typography variant="caption" color="text.secondary">Variant ID: {option.id}</Typography>
-                  </Box>
-                </Box>
-              )}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              noOptionsText="No variants found"
-            />
+            <Box display="flex" gap={1} alignItems="flex-start">
+              <Box flex={1}>
+                <Autocomplete
+                  options={variants}
+                  getOptionLabel={(option) => option.variant_name || ''}
+                  value={variants.find(v => v.id === newItemVariant.variant_id) || null}
+                  onChange={(_, newValue) => setNewItemVariant({ ...newItemVariant, variant_id: newValue ? newValue.id : '' })}
+                  inputValue={variantSearchText}
+                  onInputChange={(_, newInputValue) => setVariantSearchText(newInputValue)}
+                  filterOptions={(options, { inputValue }) => {
+                    const filter = inputValue.toLowerCase();
+                    return options.filter(o =>
+                      o.variant_name.toLowerCase().includes(filter) ||
+                      o.id.toString().includes(filter)
+                    );
+                  }}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Select Variant *" placeholder="Search by variant name or ID..." required helperText="Type to search through variants" />
+                  )}
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props}>
+                      <Box>
+                        <Typography variant="body1">{option.variant_name}</Typography>
+                        <Typography variant="caption" color="text.secondary">Variant ID: {option.id}</Typography>
+                      </Box>
+                    </Box>
+                  )}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  noOptionsText="No variants found"
+                />
+              </Box>
+              <Tooltip title="Add New Variant">
+                <IconButton onClick={() => setQuickAddOpen(true)} sx={{ mt: 1, color: 'success.main' }}>
+                  <AddCircleOutlineIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
           </Grid>
+
+          {/* Quick Add Variant Dialog */}
+          <Dialog open={quickAddOpen} onClose={() => { setQuickAddOpen(false); setQuickVariantName(''); }} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ fontWeight: 'bold' }}>Add New Variant</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                fullWidth
+                label="Variant Name"
+                value={quickVariantName}
+                onChange={(e) => setQuickVariantName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddVariant(); }}
+                placeholder="e.g., 10ml, 50ml, Large, Small"
+                sx={{ mt: 1 }}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => { setQuickAddOpen(false); setQuickVariantName(''); }}>Cancel</Button>
+              <Button
+                onClick={handleQuickAddVariant}
+                variant="contained"
+                disabled={quickAdding || !quickVariantName.trim()}
+                startIcon={quickAdding ? <CircularProgress size={16} /> : null}
+              >
+                {quickAdding ? 'Adding...' : 'Add'}
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           {/* Barcode */}
           <Grid item xs={12} sm={6}>

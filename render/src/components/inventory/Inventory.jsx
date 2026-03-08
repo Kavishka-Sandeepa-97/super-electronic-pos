@@ -550,6 +550,7 @@ const Inventory = () => {
         setVariantSearchText={setVariantSearchText}
         onSave={handleSaveItemVariant}
         onGenerateBarcode={() => setNewItemVariant(prev => ({ ...prev, barcode: generateRandomBarcode() }))}
+        onVariantCreated={() => dispatch(fetchVariants())}
       />
 
       {/* Add Stock */}
