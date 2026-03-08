@@ -382,7 +382,7 @@ router.get('/stock/valuation', (req, res) => {
       
       GROUP BY iv.id, i.name, v.variant_name, c.name, b.brand_name, iv.barcode, sph.selling_price, sph.created_at
       HAVING current_stock > 0  -- Only items with stock
-      ORDER BY total_cost_investment DESC
+      ORDER BY iv.created_at DESC
     `).all(...params);
 
     // Calculate summary totals

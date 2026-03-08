@@ -7,11 +7,10 @@ router.get('/', (req, res) => {
   const db = getDatabase();
   try {
     const rows = db.prepare(`
-      SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
+      SELECT iv.*, i.name as item_name, i.gender as gender,
              i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-             sph.selling_price,
              sph.selling_price,
              i.id as item_id_ref,
              COALESCE(iv.created_at, i.created_at) as created_at,

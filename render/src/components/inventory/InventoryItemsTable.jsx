@@ -1,0 +1,230 @@
+import React, { useState, useMemo } from 'react';
+import useDebounce from '../../hooks/useDebounce';
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Paper,
+  TextField,
+  InputAdornment,
+  IconButton,
+  Chip,
+  Tooltip,
+} from '@mui/material';
+import {
+  Search as SearchIcon,
+  Edit as EditIcon,
+  Add as AddIcon,
+  ListAlt as ListAltIcon,
+  Print as PrintIcon,
+  History as HistoryIcon,
+  Delete as DeleteIcon,
+  Refresh as RefreshIcon,
+} from '@mui/icons-material';
+
+const getStockStatus = (item) => {
+  const stock = item.total_stock || item.stock || 0;
+  if (stock === 0) return { label: 'Out of Stock', color: 'error' };
+  if (stock <= (item.minStock || 5)) return { label: 'Low Stock', color: 'warning' };
+  return { label: 'In Stock', color: 'success' };
+};
+
+const InventoryItemsTable = ({
+  itemVariants,
+  onRefresh,
+  onEditItem,
+  onAddStock,
+  onViewStockBatch,
+  onPrintBarcode,
+  onPriceHistory,
+  onDeleteItem,
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  const debouncedSearch = useDebounce(searchTerm, 250);
+
+  const filteredItems = useMemo(() => {
+    if (!debouncedSearch) return itemVariants;
+    const lower = debouncedSearch.toLowerCase();
+    return itemVariants.filter(item => {
+      const itemName = (item.item_name || item.name || '').toLowerCase();
+      const variantName = (item.variant_name || item.variant || '').toLowerCase();
+      const categoryName = (item.category_name || item.category || '').toLowerCase();
+      const barcodeValue = item.barcode || '';
+      return (
+        itemName.includes(lower) ||
+        variantName.includes(lower) ||
+        categoryName.includes(lower) ||
+        barcodeValue.includes(debouncedSearch)
+      );
+    });
+  }, [itemVariants, debouncedSearch]);
+
+  const paginatedItems = useMemo(
+    () => filteredItems.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredItems, page, rowsPerPage]
+  );
+
+  const handleChangePage = (_, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
+  };
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0);
+  };
+
+  return (
+    <Card>
+      <CardContent>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          <Typography variant="h6" fontWeight="bold">
+            Inventory Items
+          </Typography>
+        </Box>
+
+        <Box display="flex" gap={2} mb={2}>
+          <TextField
+            placeholder="Search items..."
+            value={searchTerm}
+            onChange={handleSearchChange}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ flexGrow: 1 }}
+            size="small"
+          />
+          <Tooltip title="Refresh items">
+            <IconButton
+              onClick={onRefresh}
+              color="primary"
+              sx={{ border: '1px solid', borderColor: 'primary.main', borderRadius: 1 }}
+            >
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        <TableContainer component={Paper}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Item Name</TableCell>
+                <TableCell>Variant</TableCell>
+                <TableCell>Category</TableCell>
+                <TableCell>Price</TableCell>
+                <TableCell>Stock</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Barcode</TableCell>
+                <TableCell>Date Added</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginatedItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} align="center">
+                    <Typography variant="body2" color="text.secondary" py={2}>
+                      {searchTerm ? 'No items match your search' : 'No items available'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedItems.map((item) => {
+                  const status = getStockStatus(item);
+                  return (
+                    <TableRow key={item.id || `item-${item.item_id_ref}`}>
+                      <TableCell>{item.item_name || item.name || '-'}</TableCell>
+                      <TableCell>{item.variant_name || item.variant || '-'}</TableCell>
+                      <TableCell>
+                        <Chip label={item.category_name || item.category || '-'} size="small" />
+                      </TableCell>
+                      <TableCell>Rs. {(item.selling_price || item.price || 0).toFixed(2)}</TableCell>
+                      <TableCell>{item.total_stock || item.stock || 0}</TableCell>
+                      <TableCell>
+                        <Chip label={status.label} color={status.color} size="small" />
+                      </TableCell>
+                      <TableCell>{item.barcode || '-'}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                        {item.created_at ? (
+                          <>
+                            <div>{new Date(item.created_at).toLocaleDateString()}</div>
+                            <div style={{ fontSize: '0.75em', color: '#888' }}>
+                              {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </>
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip title="Edit Item">
+                          <IconButton size="small" onClick={() => onEditItem(item)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Add Stock">
+                          <IconButton size="small" color="secondary" onClick={() => onAddStock(item)}>
+                            <AddIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="View Stock Details">
+                          <IconButton size="small" color="info" onClick={() => onViewStockBatch(item)}>
+                            <ListAltIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Print Barcode Labels">
+                          <span>
+                            <IconButton size="small" color="success" onClick={() => onPrintBarcode(item)} disabled={!item.barcode}>
+                              <PrintIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Price History">
+                          <IconButton size="small" color="primary" onClick={() => onPriceHistory(item)}>
+                            <HistoryIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete Item">
+                          <IconButton size="small" color="error" onClick={() => onDeleteItem(item.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <TablePagination
+          component="div"
+          count={filteredItems.length}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+          labelRowsPerPage="Per page:"
+        />
+      </CardContent>
+    </Card>
+  );
+};
+
+export default InventoryItemsTable;

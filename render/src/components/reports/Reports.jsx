@@ -23,6 +23,7 @@ import {
   Chip,
   IconButton,
   Tooltip,
+  TablePagination,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -67,6 +68,8 @@ const Reports = () => {
   const [inventoryValuation, setInventoryValuation] = useState({ data: [], summary: {} });
   const [searchTerm, setSearchTerm] = useState('');
   const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [inventoryPage, setInventoryPage] = useState(0);
+  const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(25);
   const [loading, setLoading] = useState(false);
 
   const fetchReportsData = async () => {
@@ -683,7 +686,7 @@ const Reports = () => {
                       size="small"
                       placeholder="Search by item name, variant, category or barcode..."
                       value={inventorySearchTerm}
-                      onChange={(e) => setInventorySearchTerm(e.target.value)}
+                      onChange={(e) => { setInventorySearchTerm(e.target.value); setInventoryPage(0); }}
                       InputProps={{
                         startAdornment: (
                           <Box component="span" sx={{ mr: 1, color: 'text.secondary', display: 'flex' }}>
@@ -710,17 +713,23 @@ const Reports = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {inventoryValuation.data?.filter(item => {
-                        if (!inventorySearchTerm.trim()) return true;
-                        const q = inventorySearchTerm.toLowerCase();
-                        return (
-                          (item.item_name || '').toLowerCase().includes(q) ||
-                          (item.variant_name || '').toLowerCase().includes(q) ||
-                          (item.category_name || '').toLowerCase().includes(q) ||
-                          (item.brand_name || '').toLowerCase().includes(q) ||
-                          (item.barcode || '').toLowerCase().includes(q)
+                      {(() => {
+                        const filtered = (inventoryValuation.data || []).filter(item => {
+                          if (!inventorySearchTerm.trim()) return true;
+                          const q = inventorySearchTerm.toLowerCase();
+                          return (
+                            (item.item_name || '').toLowerCase().includes(q) ||
+                            (item.variant_name || '').toLowerCase().includes(q) ||
+                            (item.category_name || '').toLowerCase().includes(q) ||
+                            (item.brand_name || '').toLowerCase().includes(q) ||
+                            (item.barcode || '').toLowerCase().includes(q)
+                          );
+                        });
+                        const paginated = filtered.slice(
+                          inventoryPage * inventoryRowsPerPage,
+                          inventoryPage * inventoryRowsPerPage + inventoryRowsPerPage
                         );
-                      }).map((item, index) => (
+                        return paginated.map((item, index) => (
                         <TableRow key={index}>
                           <TableCell>
                             <Box>
@@ -767,9 +776,30 @@ const Reports = () => {
                             />
                           </TableCell>
                         </TableRow>
-                      ))}
+                        ));
+                      })()}
                     </TableBody>
                   </Table>
+                  <TablePagination
+                    component="div"
+                    count={(() => {
+                      if (!inventorySearchTerm.trim()) return inventoryValuation.data?.length || 0;
+                      const q = inventorySearchTerm.toLowerCase();
+                      return (inventoryValuation.data || []).filter(item =>
+                        (item.item_name || '').toLowerCase().includes(q) ||
+                        (item.variant_name || '').toLowerCase().includes(q) ||
+                        (item.category_name || '').toLowerCase().includes(q) ||
+                        (item.brand_name || '').toLowerCase().includes(q) ||
+                        (item.barcode || '').toLowerCase().includes(q)
+                      ).length;
+                    })()}
+                    page={inventoryPage}
+                    onPageChange={(_, newPage) => setInventoryPage(newPage)}
+                    rowsPerPage={inventoryRowsPerPage}
+                    onRowsPerPageChange={(e) => { setInventoryRowsPerPage(parseInt(e.target.value, 10)); setInventoryPage(0); }}
+                    rowsPerPageOptions={[10, 25, 50, 100]}
+                    labelRowsPerPage="Per page:"
+                  />
                 </TableContainer>
               </Box>
             )}
