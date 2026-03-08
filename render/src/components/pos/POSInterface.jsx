@@ -71,7 +71,7 @@ const POSInterface = () => {
     error
   } = useSelector((state) => state.inventory);
 
-  const { currentOrder, activeOrders } = useSelector((state) => state.order);
+  const { activeOrders } = useSelector((state) => state.order);
   const { modals } = useSelector((state) => state.ui);
 
   const [searchInput, setSearchInput] = useState('');
@@ -438,7 +438,7 @@ const POSInterface = () => {
                 const stockStatus = getStockStatus(item.total_stock || 0);
                 const isOutOfStock = (item.total_stock || 0) <= 0;
                 return (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={item.id || Math.random()}>
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={item.id}>
                     <Card
                       sx={{
                         height: '100%',
@@ -458,6 +458,7 @@ const POSInterface = () => {
                       {item.image ? (
                         <CardMedia
                           component="img"
+                          loading="lazy"
                           image={item.image.startsWith('data:image') ? item.image : `http://localhost:3001/uploads/${item.image.replace(/\\/g, '/').split('/').pop()}`}
                           alt={item.item_name}
                           sx={{

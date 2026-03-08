@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -111,20 +111,18 @@ const Reports = () => {
   }, [period, startDate, endDate]);
 
   // Filter product details data based on search term
-  const filteredProductDetails = productDetailsData.filter(product => {
-    if (!searchTerm) return true; // Show all if no search term
-    
+  const filteredProductDetails = useMemo(() => productDetailsData.filter(product => {
+    if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
     const itemName = (product.item_name || '').toLowerCase();
     const variantName = (product.variant_name || '').toLowerCase();
     const barcode = (product.barcode || '').toLowerCase();
-    
     return (
       itemName.includes(searchLower) ||
       variantName.includes(searchLower) ||
       barcode.includes(searchLower)
     );
-  });
+  }), [productDetailsData, searchTerm]);
 
   const handlePeriodChange = (event) => {
     setPeriod(event.target.value);

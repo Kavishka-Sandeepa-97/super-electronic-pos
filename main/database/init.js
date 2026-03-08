@@ -335,7 +335,11 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_open_at ON cashier_shift(open_at)',
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_item_variant ON stock_batch(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_supplier ON stock_batch(supplier_id)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_batch_expire_date ON stock_batch(expire_date)'
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_expire_date ON stock_batch(expire_date)',
+    // Composite indexes for frequent JOIN + aggregate patterns
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant_remaining ON stock_batch(item_variant_id, remaining_qty)',
+    'CREATE INDEX IF NOT EXISTS idx_sell_price_variant_id_desc ON sell_price_history(item_variant_id, id DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, date)'
   ];
 
   indexes.forEach(index => {
