@@ -27,6 +27,7 @@ import {
   FormControlLabel,
   Checkbox,
   FormGroup,
+  TablePagination,
 } from '@mui/material';
 import {
   Search,
@@ -75,6 +76,8 @@ const POSInterface = () => {
 
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebounce(searchInput, 300);
+  const [posPage, setPosPage] = useState(0);
+  const [posRowsPerPage, setPosRowsPerPage] = useState(24);
   const [activeOrdersOpen, setActiveOrdersOpen] = useState(false);
   
   // Barcode scanner states
@@ -151,6 +154,7 @@ const POSInterface = () => {
   useEffect(() => {
     dispatch(setSearchTerm(debouncedSearch));
     dispatch(filterItems());
+    setPosPage(0);
 
     // Cleanup function
     return () => {
@@ -429,7 +433,7 @@ const POSInterface = () => {
           {/* Items Grid */}
           <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
             <Grid container spacing={2}>
-              {(filteredItems || []).map((item) => {
+              {(filteredItems || []).slice(posPage * posRowsPerPage, posPage * posRowsPerPage + posRowsPerPage).map((item) => {
                 if (!item) return null;
                 const stockStatus = getStockStatus(item.total_stock || 0);
                 const isOutOfStock = (item.total_stock || 0) <= 0;
@@ -549,6 +553,19 @@ const POSInterface = () => {
                   Try adjusting your search or category filter
                 </Typography>
               </Box>
+            )}
+            {filteredItems.length > 0 && (
+              <TablePagination
+                component="div"
+                count={filteredItems.length}
+                page={posPage}
+                onPageChange={(_, newPage) => { setPosPage(newPage); }}
+                rowsPerPage={posRowsPerPage}
+                onRowsPerPageChange={(e) => { setPosRowsPerPage(parseInt(e.target.value, 10)); setPosPage(0); }}
+                rowsPerPageOptions={[12, 24, 48]}
+                labelRowsPerPage="Per page:"
+                sx={{ borderTop: '1px solid', borderColor: 'divider', mt: 1 }}
+              />
             )}
           </Box>
         </Grid>
