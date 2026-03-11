@@ -67,6 +67,48 @@ const runMigrations = () => {
       db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.3_add_discount_columns');
     }
 
+    // Migration v1.4: Add discount columns to brand table
+    const addBrandDiscountMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.4_add_brand_discount_columns');
+    
+    if (!addBrandDiscountMigration) {
+      const tableInfo = db.pragma('table_info(brand)');
+      const hasDiscountType = tableInfo.some(column => column.name === 'is_discount_active');
+      
+      if (!hasDiscountType) {
+        console.log('Running migration v1.4: Adding discount columns to brand table...');
+        db.exec(`
+          ALTER TABLE brand ADD COLUMN is_discount_active BOOLEAN DEFAULT 0;
+          ALTER TABLE brand ADD COLUMN discount_type TEXT CHECK(discount_type IN ('fixed', 'percentage'));
+          ALTER TABLE brand ADD COLUMN discount_value DECIMAL(10,2) DEFAULT 0;
+        `);
+        console.log('Migration v1.4 completed successfully - brand discount columns added');
+      }
+      
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.4_add_brand_discount_columns');
+    }
+
+    // Migration v1.5: Add discount detail columns to item_variant_order
+    const addOrderItemDiscountMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.5_add_order_item_discount_columns');
+    
+    if (!addOrderItemDiscountMigration) {
+      const tableInfo = db.pragma('table_info(item_variant_order)');
+      const hasDiscountType = tableInfo.some(column => column.name === 'discount_type');
+      
+      if (!hasDiscountType) {
+        console.log('Running migration v1.5: Adding discount columns to item_variant_order table...');
+        db.exec(`
+          ALTER TABLE item_variant_order ADD COLUMN discount_source TEXT;
+          ALTER TABLE item_variant_order ADD COLUMN discount_type TEXT;
+          ALTER TABLE item_variant_order ADD COLUMN discount_value DECIMAL(10,2) DEFAULT 0;
+          ALTER TABLE item_variant_order ADD COLUMN discount_amount DECIMAL(10,2) DEFAULT 0;
+          ALTER TABLE item_variant_order ADD COLUMN original_price DECIMAL(10,2);
+        `);
+        console.log('Migration v1.5 completed successfully - order item discount columns added');
+      }
+      
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.5_add_order_item_discount_columns');
+    }
+
     // Migration v1.2: Remove stock_batch_id column
     const removeStockBatchMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.2_remove_stock_batch_id');
     

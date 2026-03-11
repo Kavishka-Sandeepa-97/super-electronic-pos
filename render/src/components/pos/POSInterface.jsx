@@ -36,6 +36,7 @@ import {
   Category,
   Person,
   CheckCircle,
+  LocalOffer,
 } from '@mui/icons-material';
 import {
   fetchCategories,
@@ -56,6 +57,7 @@ import OrderHistoryDialog from './OrderHistoryDialog';
 import CategoryMenu from './CategoryMenu';
 import BrandMenu from './BrandMenu';
 import { toast } from 'react-toastify';
+import api from '../../services/api';
 
 const POSInterface = () => {
   const dispatch = useDispatch();
@@ -85,6 +87,9 @@ const POSInterface = () => {
   const [failedBarcode, setFailedBarcode] = useState('');
   const [successMessage, setSuccessMessage] = useState(null);
   const [orderHistoryOpen, setOrderHistoryOpen] = useState(false);
+
+  // Global discount settings
+  const [globalDiscountSettings, setGlobalDiscountSettings] = useState(null);
 
   // Setup barcode scanner hook
   const { resetBarcode } = useBarcodeScanner(
@@ -119,7 +124,8 @@ const POSInterface = () => {
           ...itemVariant,
           sellingPrice: parseFloat(itemVariant.selling_price)
         },
-        quantity: 1
+        quantity: 1,
+        globalDiscountSettings
       }));
       
       // Show success notification
@@ -138,12 +144,17 @@ const POSInterface = () => {
       setBarcodeNotFoundOpen(true);
       toast.error(`Error scanning barcode: ${error.message}`);
     }
-  }, [dispatch]);
+  }, [dispatch, globalDiscountSettings]);
 
   useEffect(() => {
     dispatch(fetchCategories());
     dispatch(fetchItemVariants());
     dispatch(fetchActiveOrders()); // Fetch active orders for badge count
+
+    // Fetch global discount settings
+    api.globalDiscount.get().then(settings => {
+      setGlobalDiscountSettings(settings);
+    }).catch(err => console.error('Failed to load global discount settings:', err));
 
     // Cleanup function
     return () => {
@@ -178,8 +189,8 @@ const POSInterface = () => {
       sellingPrice: parseFloat(itemVariant.selling_price)
     };
 
-    dispatch(addItemToOrder({ itemVariant: validItem, quantity: 1 }));
-  }, [dispatch]);
+    dispatch(addItemToOrder({ itemVariant: validItem, quantity: 1, globalDiscountSettings }));
+  }, [dispatch, globalDiscountSettings]);
 
   const getStockStatus = (stock) => {
     if (stock <= 0) return { label: 'Out of Stock', color: 'error' };
@@ -508,6 +519,25 @@ const POSInterface = () => {
                           >
                             {formatPrice(item.selling_price || 0)}
                           </Box>
+                          {!globalDiscountSettings?.is_global_discount_active && (item.is_discount_active || item.brand_discount_active) && (
+                            <Tooltip title={
+                              item.is_discount_active 
+                                ? `Item Discount: ${item.discount_type === 'percentage' ? item.discount_value + '%' : 'Rs.' + item.discount_value}`
+                                : `Brand Discount: ${item.brand_discount_type === 'percentage' ? item.brand_discount_value + '%' : 'Rs.' + item.brand_discount_value}`
+                            }>
+                              <Chip
+                                icon={<LocalOffer sx={{ fontSize: '0.7rem !important' }} />}
+                                label={
+                                  item.is_discount_active 
+                                    ? (item.discount_type === 'percentage' ? `${item.discount_value}%` : `Rs.${item.discount_value}`)
+                                    : (item.brand_discount_type === 'percentage' ? `${item.brand_discount_value}%` : `Rs.${item.brand_discount_value}`)
+                                }
+                                size="small"
+                                color={item.is_discount_active ? 'error' : 'secondary'}
+                                sx={{ height: 22, fontSize: '0.7rem' }}
+                              />
+                            </Tooltip>
+                          )}
 
                         </Box>
 

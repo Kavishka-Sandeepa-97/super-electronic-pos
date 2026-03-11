@@ -95,9 +95,14 @@ const orderSlice = createSlice({
           itemName: item.item_name,
           variantName: item.variant_name,
           price: parseFloat(item.price || item.unit_price),
+          originalPrice: parseFloat(item.original_price || item.price || item.unit_price),
           quantity: parseFloat(item.quantity || item.qty),
           total: parseFloat(item.quantity || item.qty) * parseFloat(item.price || item.unit_price),
           barcode: item.barcode,
+          discountSource: item.discount_source || null,
+          discountType: item.item_discount_type || item.discount_type || null,
+          discountValue: parseFloat(item.item_discount_value || item.discount_value || 0),
+          discountAmount: parseFloat(item.item_discount_amount || item.discount_amount || 0),
         })),
         subtotal: (order.items || []).reduce((sum, item) => {
           return sum + (parseFloat(item.quantity || item.qty) * parseFloat(item.price || item.unit_price));
@@ -112,7 +117,7 @@ const orderSlice = createSlice({
       };
     },
     addItemToOrder: (state, action) => {
-      const { itemVariant, quantity = 1 } = action.payload;
+      const { itemVariant, quantity = 1, globalDiscountSettings } = action.payload;
       const existingItem = state.currentOrder.items.find(
         item => item.itemVariantId === itemVariant.id
       );
@@ -122,17 +127,67 @@ const orderSlice = createSlice({
         existingItem.total = existingItem.quantity * existingItem.price;
       } else {
         // Ensure price is a valid number
-        const price = parseFloat(itemVariant.selling_price || itemVariant.sellingPrice);
-        const validPrice = isNaN(price) ? 0 : price;
+        const originalPrice = parseFloat(itemVariant.selling_price || itemVariant.sellingPrice);
+        const validOriginalPrice = isNaN(originalPrice) ? 0 : originalPrice;
         
+        // Determine discount priority:
+        // If global discount is active → no item/brand discounts for any item
+        // If global is OFF → item discount > brand discount
+        let discountSource = null;
+        let discountType = null;
+        let discountValue = 0;
+        let discountAmount = 0;
+        let finalPrice = validOriginalPrice;
+
+        const globalActive = globalDiscountSettings && globalDiscountSettings.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0;
+
+        if (globalActive) {
+          // Global discount is ON - no per-item discounts, global applies at order level
+          finalPrice = validOriginalPrice;
+        } else if (itemVariant.is_discount_active && itemVariant.discount_type && parseFloat(itemVariant.discount_value) > 0) {
+          // Item-level discount (highest priority when global is OFF)
+          discountSource = 'item';
+          discountType = itemVariant.discount_type;
+          discountValue = parseFloat(itemVariant.discount_value);
+          if (discountType === 'percentage') {
+            discountAmount = Math.round((validOriginalPrice * discountValue / 100) * 100) / 100;
+          } else {
+            discountAmount = discountValue;
+          }
+          finalPrice = Math.max(0, validOriginalPrice - discountAmount);
+        } else if (itemVariant.brand_discount_active && itemVariant.brand_discount_type && parseFloat(itemVariant.brand_discount_value) > 0) {
+          // Brand-level discount (second priority when global is OFF)
+          discountSource = 'brand';
+          discountType = itemVariant.brand_discount_type;
+          discountValue = parseFloat(itemVariant.brand_discount_value);
+          if (discountType === 'percentage') {
+            discountAmount = Math.round((validOriginalPrice * discountValue / 100) * 100) / 100;
+          } else {
+            discountAmount = discountValue;
+          }
+          finalPrice = Math.max(0, validOriginalPrice - discountAmount);
+        }
+
         state.currentOrder.items.push({
           itemVariantId: itemVariant.id,
           itemName: itemVariant.item_name || itemVariant.itemName,
           variantName: itemVariant.variant_name || itemVariant.variantName,
-          price: validPrice,
+          price: finalPrice,
+          originalPrice: validOriginalPrice,
           quantity,
-          total: validPrice * quantity,
+          total: finalPrice * quantity,
           category: itemVariant.category_name || itemVariant.categoryName,
+          discountSource,
+          discountType,
+          discountValue,
+          discountAmount,
+          // Store raw discount info for recalculation
+          itemDiscountActive: !!itemVariant.is_discount_active,
+          itemDiscountType: itemVariant.discount_type,
+          itemDiscountValue: parseFloat(itemVariant.discount_value) || 0,
+          brandDiscountActive: !!itemVariant.brand_discount_active,
+          brandDiscountType: itemVariant.brand_discount_type,
+          brandDiscountValue: parseFloat(itemVariant.brand_discount_value) || 0,
         });
       }
 
@@ -199,6 +254,66 @@ const orderSlice = createSlice({
         state.currentOrder.subtotal + 
         state.currentOrder.additionalCharges - 
         state.currentOrder.discount;
+    },
+    resetItemDiscount: (state, action) => {
+      const itemVariantId = action.payload;
+      const item = state.currentOrder.items.find(
+        item => item.itemVariantId === itemVariantId
+      );
+      if (item) {
+        const origPrice = item.originalPrice != null ? item.originalPrice : item.price;
+        item.price = origPrice;
+        item.discountSource = null;
+        item.discountType = null;
+        item.discountValue = 0;
+        item.discountAmount = 0;
+        item.total = item.quantity * origPrice;
+
+        // Recalculate totals
+        state.currentOrder.subtotal = state.currentOrder.items.reduce(
+          (sum, item) => {
+            const itemTotal = parseFloat(item.total);
+            return sum + (isNaN(itemTotal) ? 0 : itemTotal);
+          }, 0
+        );
+        state.currentOrder.total = 
+          state.currentOrder.subtotal + 
+          state.currentOrder.additionalCharges - 
+          state.currentOrder.discount;
+      }
+    },
+    updateItemDiscount: (state, action) => {
+      const { itemVariantId, discountType, discountValue } = action.payload;
+      const item = state.currentOrder.items.find(
+        item => item.itemVariantId === itemVariantId
+      );
+      if (item) {
+        const originalPrice = item.originalPrice || item.price;
+        let discountAmount = 0;
+        if (discountType === 'percentage') {
+          discountAmount = Math.round((originalPrice * discountValue / 100) * 100) / 100;
+        } else if (discountType === 'fixed') {
+          discountAmount = discountValue;
+        }
+        item.discountSource = 'manual';
+        item.discountType = discountType;
+        item.discountValue = discountValue;
+        item.discountAmount = discountAmount;
+        item.price = Math.max(0, originalPrice - discountAmount);
+        item.total = item.quantity * item.price;
+
+        // Recalculate totals
+        state.currentOrder.subtotal = state.currentOrder.items.reduce(
+          (sum, item) => {
+            const itemTotal = parseFloat(item.total);
+            return sum + (isNaN(itemTotal) ? 0 : itemTotal);
+          }, 0
+        );
+        state.currentOrder.total = 
+          state.currentOrder.subtotal + 
+          state.currentOrder.additionalCharges - 
+          state.currentOrder.discount;
+      }
     },
     setAdditionalCharges: (state, action) => {
       state.currentOrder.additionalCharges = action.payload;
@@ -311,6 +426,8 @@ export const {
   removeItemFromOrder,
   updateItemQuantity,
   setDiscount,
+  resetItemDiscount,
+  updateItemDiscount,
   setAdditionalCharges,
   setCustomerInfo,
   clearCurrentOrder,

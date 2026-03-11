@@ -20,6 +20,14 @@ import {
   Grid,
   InputAdornment,
   TablePagination,
+  Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  FormControlLabel,
+  Switch,
+  Alert,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -28,6 +36,7 @@ import {
   Save as SaveIcon,
   Business as BusinessIcon,
   Search as SearchIcon,
+  LocalOffer as DiscountIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import api from '../../services/api';
@@ -40,7 +49,7 @@ const BrandManagementMenu = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [brandDialog, setBrandDialog] = useState(false);
   const [editingBrand, setEditingBrand] = useState(null);
-  const [brandFormData, setBrandFormData] = useState({ brand_name: '', description: '' });
+  const [brandFormData, setBrandFormData] = useState({ brand_name: '', description: '', is_discount_active: false, discount_type: 'percentage', discount_value: '' });
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [brandToDelete, setBrandToDelete] = useState(null);
 
@@ -64,7 +73,7 @@ const BrandManagementMenu = () => {
 
   const handleAddBrand = () => {
     setEditingBrand(null);
-    setBrandFormData({ brand_name: '', description: '' });
+    setBrandFormData({ brand_name: '', description: '', is_discount_active: false, discount_type: 'percentage', discount_value: '' });
     setBrandDialog(true);
   };
 
@@ -72,7 +81,10 @@ const BrandManagementMenu = () => {
     setEditingBrand(brand);
     setBrandFormData({ 
       brand_name: brand.brand_name, 
-      description: brand.description || '' 
+      description: brand.description || '',
+      is_discount_active: !!brand.is_discount_active,
+      discount_type: brand.discount_type || 'percentage',
+      discount_value: brand.discount_value || ''
     });
     setBrandDialog(true);
   };
@@ -80,7 +92,7 @@ const BrandManagementMenu = () => {
   const handleCloseBrandDialog = () => {
     setBrandDialog(false);
     setEditingBrand(null);
-    setBrandFormData({ brand_name: '', description: '' });
+    setBrandFormData({ brand_name: '', description: '', is_discount_active: false, discount_type: 'percentage', discount_value: '' });
   };
 
   const handleSaveBrand = async () => {
@@ -187,9 +199,20 @@ const BrandManagementMenu = () => {
                     <ListItem>
                       <ListItemText
                         primary={
-                          <Typography variant="body1" fontWeight="bold">
-                            {brand.brand_name}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {brand.brand_name}
+                            </Typography>
+                            {brand.is_discount_active ? (
+                              <Chip
+                                icon={<DiscountIcon />}
+                                label={brand.discount_type === 'percentage' ? `${brand.discount_value}%` : `Rs.${brand.discount_value}`}
+                                size="small"
+                                color="secondary"
+                                variant="outlined"
+                              />
+                            ) : null}
+                          </Box>
                         }
                         secondary={brand.description || 'No description'}
                       />
@@ -253,6 +276,57 @@ const BrandManagementMenu = () => {
                 placeholder="Optional: Add a description for this brand"
               />
             </Grid>
+
+            {/* Brand Discount Settings */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mt: 1, mb: 1 }}>
+                Brand Discount
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={brandFormData.is_discount_active}
+                    onChange={(e) => setBrandFormData({ ...brandFormData, is_discount_active: e.target.checked })}
+                  />
+                }
+                label="Enable Brand Discount"
+              />
+            </Grid>
+            {brandFormData.is_discount_active && (
+              <>
+                <Grid item xs={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Discount Type</InputLabel>
+                    <Select
+                      value={brandFormData.discount_type || 'percentage'}
+                      label="Discount Type"
+                      onChange={(e) => setBrandFormData({ ...brandFormData, discount_type: e.target.value })}
+                    >
+                      <MenuItem value="fixed">Fixed Amount (Rs.)</MenuItem>
+                      <MenuItem value="percentage">Percentage (%)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label={brandFormData.discount_type === 'percentage' ? 'Discount Value (%)' : 'Discount Value (Rs.)'}
+                    type="number"
+                    value={brandFormData.discount_value}
+                    onChange={(e) => setBrandFormData({ ...brandFormData, discount_value: e.target.value })}
+                    inputProps={{ min: 0, step: 0.01 }}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Alert severity="info" sx={{ mt: 1 }}>
+                    This discount applies to all items under this brand (unless the item has its own discount set).
+                  </Alert>
+                </Grid>
+              </>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>

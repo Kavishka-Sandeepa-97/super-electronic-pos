@@ -10,6 +10,9 @@ router.get('/', (req, res) => {
       SELECT iv.*, i.name as item_name, i.gender as gender,
              i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
+             b.is_discount_active as brand_discount_active,
+             b.discount_type as brand_discount_type,
+             b.discount_value as brand_discount_value,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price,
              i.id as item_id_ref,
@@ -45,6 +48,9 @@ router.get('/:id', (req, res) => {
       SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
              i.category_id as category_id, v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
+             b.is_discount_active as brand_discount_active,
+             b.discount_type as brand_discount_type,
+             b.discount_value as brand_discount_value,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
              sph.selling_price,
              iv.is_discount_active, iv.discount_type, iv.discount_value
@@ -228,6 +234,9 @@ router.get('/barcode/:barcode', (req, res) => {
       SELECT iv.*, i.name as item_name, i.image, i.gender as gender,
              v.variant_name, c.name as category_name,
              b.id as brand_id, b.brand_name as brand_name,
+             b.is_discount_active as brand_discount_active,
+             b.discount_type as brand_discount_type,
+             b.discount_value as brand_discount_value,
              iv.is_discount_active, iv.discount_type, iv.discount_value
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id

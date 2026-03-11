@@ -32,22 +32,28 @@ router.get('/:id', (req, res) => {
 // Create new brand
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { brand_name, description } = req.body;
+  const { brand_name, description, is_discount_active, discount_type, discount_value } = req.body;
   
   if (!brand_name) {
     return res.status(400).json({ error: 'Brand name is required' });
   }
   
   try {
-    const result = db.prepare('INSERT INTO brand (brand_name, description, created_at) VALUES (?, ?, ?)').run(
+    const result = db.prepare('INSERT INTO brand (brand_name, description, is_discount_active, discount_type, discount_value, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
       brand_name,
       description || null,
+      is_discount_active ? 1 : 0,
+      discount_type || null,
+      parseFloat(discount_value) || 0,
       getCurrentUTCTimestamp()
     );
     res.status(201).json({
       id: result.lastInsertRowid,
       brand_name,
       description,
+      is_discount_active: is_discount_active ? 1 : 0,
+      discount_type: discount_type || null,
+      discount_value: parseFloat(discount_value) || 0,
       message: 'Brand created successfully'
     });
   } catch (err) {
@@ -62,7 +68,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { brand_name, description } = req.body;
+  const { brand_name, description, is_discount_active, discount_type, discount_value } = req.body;
   
   if (!brand_name) {
     return res.status(400).json({ error: 'Brand name is required' });
@@ -76,9 +82,12 @@ router.put('/:id', (req, res) => {
     }
     
     // Update brand
-    db.prepare('UPDATE brand SET brand_name = ?, description = ? WHERE id = ?').run(
+    db.prepare('UPDATE brand SET brand_name = ?, description = ?, is_discount_active = ?, discount_type = ?, discount_value = ? WHERE id = ?').run(
       brand_name,
       description || null,
+      is_discount_active ? 1 : 0,
+      discount_type || null,
+      parseFloat(discount_value) || 0,
       id
     );
     
@@ -86,6 +95,9 @@ router.put('/:id', (req, res) => {
       id: parseInt(id),
       brand_name,
       description,
+      is_discount_active: is_discount_active ? 1 : 0,
+      discount_type: discount_type || null,
+      discount_value: parseFloat(discount_value) || 0,
       message: 'Brand updated successfully'
     });
   } catch (err) {

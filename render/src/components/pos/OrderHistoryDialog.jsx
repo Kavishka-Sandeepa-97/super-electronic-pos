@@ -38,6 +38,7 @@ import {
   Edit,
   Visibility,
   Delete,
+  LocalOffer,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
@@ -172,7 +173,12 @@ const OrderHistoryDialog = ({ open, onClose }) => {
           items: editedItems.map(item => ({
             item_variant_id: item.item_variant_id,
             qty: item.quantity || item.qty,
-            unit_price: item.price || item.unit_price
+            unit_price: item.price || item.unit_price,
+            discount_source: item.discount_source || null,
+            discount_type: item.item_discount_type || null,
+            discount_value: item.item_discount_value || 0,
+            discount_amount: item.item_discount_amount || 0,
+            original_price: item.original_price || item.price || item.unit_price
           })),
           total_amount: newTotal
         })
@@ -513,6 +519,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                       <TableCell><strong>Item</strong></TableCell>
                       <TableCell align="center"><strong>Qty</strong></TableCell>
                       <TableCell align="right"><strong>Unit Price</strong></TableCell>
+                      <TableCell align="center"><strong>Discount</strong></TableCell>
                       <TableCell align="right"><strong>Total</strong></TableCell>
                       {editMode && <TableCell align="center"><strong>Actions</strong></TableCell>}
                     </TableRow>
@@ -546,7 +553,31 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                               qty
                             )}
                           </TableCell>
-                          <TableCell align="right">{formatPrice(price)}</TableCell>
+                          <TableCell align="right">
+                            {item.original_price && parseFloat(item.original_price) > price ? (
+                              <Box>
+                                <Typography variant="caption" sx={{ textDecoration: 'line-through', color: 'text.secondary' }}>
+                                  {formatPrice(item.original_price)}
+                                </Typography>
+                                <Typography variant="body2">{formatPrice(price)}</Typography>
+                              </Box>
+                            ) : (
+                              formatPrice(price)
+                            )}
+                          </TableCell>
+                          <TableCell align="center">
+                            {item.item_discount_amount && parseFloat(item.item_discount_amount) > 0 ? (
+                              <Chip
+                                icon={<LocalOffer />}
+                                label={`${item.discount_source || ''} ${item.item_discount_type === 'percentage' ? `${item.item_discount_value}%` : formatPrice(item.item_discount_value)}`}
+                                size="small"
+                                color={item.discount_source === 'item' ? 'secondary' : item.discount_source === 'brand' ? 'primary' : item.discount_source === 'manual' ? 'warning' : 'success'}
+                                variant="outlined"
+                              />
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">-</Typography>
+                            )}
+                          </TableCell>
                           <TableCell align="right">{formatPrice(qty * price)}</TableCell>
                           {editMode && (
                             <TableCell align="center">
@@ -581,11 +612,28 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                         <TableCell align="right">
                           {formatPrice((editMode ? editedItems : (selectedOrder.items || [])).reduce((sum, item) => {
                             const qty = parseFloat(item.quantity || item.qty || 0);
-                            const price = parseFloat(item.price || item.unit_price || 0);
+                            const price = parseFloat(item.original_price || item.price || item.unit_price || 0);
                             return sum + (qty * price);
                           }, 0))}
                         </TableCell>
                       </TableRow>
+
+                      {/* Item Discounts */}
+                      {(() => {
+                        const totalItemDiscounts = (selectedOrder.items || []).reduce((sum, item) => {
+                          const qty = parseFloat(item.quantity || item.qty || 0);
+                          const amt = parseFloat(item.item_discount_amount || 0);
+                          return sum + (amt * qty);
+                        }, 0);
+                        return totalItemDiscounts > 0 ? (
+                          <TableRow>
+                            <TableCell sx={{ color: 'error.main' }}>Item Discounts</TableCell>
+                            <TableCell align="right" sx={{ color: 'error.main' }}>
+                              - {formatPrice(totalItemDiscounts)}
+                            </TableCell>
+                          </TableRow>
+                        ) : null;
+                      })()}
 
                       {/* Additional Charges */}
                       <TableRow>

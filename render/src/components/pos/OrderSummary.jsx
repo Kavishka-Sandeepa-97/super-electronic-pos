@@ -22,6 +22,7 @@ import {
   MenuItem,
   Chip,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import {
   Add,
@@ -33,11 +34,16 @@ import {
   TableRestaurant,
   Receipt,
   ShoppingCart,
+  Refresh,
+  LocalOffer,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import {
   updateItemQuantity,
   removeItemFromOrder,
   setDiscount,
+  resetItemDiscount,
+  updateItemDiscount,
   setAdditionalCharges,
   setCustomerInfo,
   clearCurrentOrder,
@@ -67,6 +73,9 @@ const OrderSummary = () => {
   const [discountType, setDiscountType] = useState('fixed');
   const [discountValue, setDiscountValue] = useState('');
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [editDiscountItem, setEditDiscountItem] = useState(null);
+  const [editDiscountType, setEditDiscountType] = useState('percentage');
+  const [editDiscountValue, setEditDiscountValue] = useState('');
 
   // Clear local states when starting a new order
   useEffect(() => {
@@ -87,7 +96,12 @@ const OrderSummary = () => {
   const mapOrderItems = (items) => items.map(item => ({
     item_variant_id: item.itemVariantId,
     qty: item.quantity,
-    unit_price: item.price
+    unit_price: item.price,
+    original_price: item.originalPrice || item.price,
+    discount_source: item.discountSource || null,
+    discount_type: item.discountType || null,
+    discount_value: item.discountValue || 0,
+    discount_amount: item.discountAmount || 0,
   }));
 
   const handleQuantityChange = (itemVariantId, newQuantity) => {
@@ -381,10 +395,25 @@ const OrderSummary = () => {
                           <Typography variant="subtitle2" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
                             {item.itemName} {item.variantName && <span style={{ fontWeight: 'normal', color: '#666' }}>({item.variantName})</span>}
                           </Typography>
+                          {item.discountSource && (
+                            <Chip
+                              icon={<LocalOffer sx={{ fontSize: '0.6rem !important' }} />}
+                              label={`${item.discountSource === 'item' ? 'Item' : item.discountSource === 'brand' ? 'Brand' : item.discountSource === 'manual' ? 'Manual' : 'Global'}: ${item.discountType === 'percentage' ? item.discountValue + '%' : 'Rs.' + item.discountValue}`}
+                              size="small"
+                              color={item.discountSource === 'item' ? 'error' : item.discountSource === 'brand' ? 'secondary' : item.discountSource === 'manual' ? 'info' : 'warning'}
+                              sx={{ height: 18, fontSize: '0.6rem', '& .MuiChip-icon': { ml: '2px' } }}
+                            />
+                          )}
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
+                        <Box>
+                          {item.discountAmount > 0 && item.originalPrice && (
+                            <Typography variant="caption" sx={{ color: 'error.main', textDecoration: 'line-through', mr: 1 }}>
+                              {formatPrice(item.originalPrice)}
+                            </Typography>
+                          )}
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                               <IconButton
                                 size="small"
@@ -408,6 +437,31 @@ const OrderSummary = () => {
                               <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
                                 {formatPrice(item.total)}
                               </Typography>
+                              <Tooltip title="Edit Discount">
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => {
+                                    setEditDiscountItem(item.itemVariantId);
+                                    setEditDiscountType(item.discountType || 'percentage');
+                                    setEditDiscountValue(item.discountValue || '');
+                                  }}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  <EditIcon sx={{ fontSize: '0.9rem' }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Reset to original price">
+                                <IconButton
+                                  size="small"
+                                  color="warning"
+                                  onClick={() => dispatch(resetItemDiscount(item.itemVariantId))}
+                                  sx={{ p: 0.5 }}
+                                  disabled={!item.discountSource}
+                                >
+                                  <Refresh sx={{ fontSize: '0.9rem' }} />
+                                </IconButton>
+                              </Tooltip>
                               <IconButton
                                 size="small"
                                 color="error"
@@ -418,6 +472,52 @@ const OrderSummary = () => {
                               </IconButton>
                             </Box>
                           </Box>
+                          {/* Inline discount edit */}
+                          {editDiscountItem === item.itemVariantId && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, p: 0.5, bgcolor: '#f0f4ff', borderRadius: 1 }}>
+                              <Select
+                                size="small"
+                                value={editDiscountType}
+                                onChange={(e) => setEditDiscountType(e.target.value)}
+                                sx={{ minWidth: 80, height: 28, fontSize: '0.75rem' }}
+                              >
+                                <MenuItem value="percentage">%</MenuItem>
+                                <MenuItem value="fixed">Rs.</MenuItem>
+                              </Select>
+                              <TextField
+                                size="small"
+                                type="number"
+                                value={editDiscountValue}
+                                onChange={(e) => setEditDiscountValue(e.target.value)}
+                                placeholder="Value"
+                                sx={{ width: 70 }}
+                                inputProps={{ min: 0, step: 0.01, style: { fontSize: '0.75rem', padding: '4px 8px' } }}
+                              />
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={() => {
+                                  dispatch(updateItemDiscount({
+                                    itemVariantId: item.itemVariantId,
+                                    discountType: editDiscountType,
+                                    discountValue: parseFloat(editDiscountValue) || 0,
+                                  }));
+                                  setEditDiscountItem(null);
+                                }}
+                                sx={{ minWidth: 40, height: 28, fontSize: '0.7rem', p: 0 }}
+                              >
+                                OK
+                              </Button>
+                              <Button
+                                size="small"
+                                onClick={() => setEditDiscountItem(null)}
+                                sx={{ minWidth: 30, height: 28, fontSize: '0.7rem', p: 0 }}
+                              >
+                                ✕
+                              </Button>
+                            </Box>
+                          )}
+                        </Box>
                       }
                     />
                   </ListItem>
@@ -438,8 +538,26 @@ const OrderSummary = () => {
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                   <Typography variant="body1">Subtotal</Typography>
-                  <Typography variant="body1">{formatPrice(currentOrder.subtotal)}</Typography>
+                  <Typography variant="body1">
+                    {formatPrice(
+                      currentOrder.items.some(i => i.discountAmount > 0)
+                        ? currentOrder.items.reduce((sum, i) => sum + (i.originalPrice || i.price) * i.quantity, 0)
+                        : currentOrder.subtotal
+                    )}
+                  </Typography>
                 </Box>
+
+                {/* Item-level discounts summary */}
+                {currentOrder.items.some(i => i.discountAmount > 0) && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="body2" color="error.main">
+                      Item Discounts
+                    </Typography>
+                    <Typography variant="body2" color="error.main">
+                      - {formatPrice(currentOrder.items.reduce((sum, i) => sum + (i.discountAmount || 0) * i.quantity, 0))}
+                    </Typography>
+                  </Box>
+                )}
                 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                   <Typography variant="body1">Additional Charges</Typography>

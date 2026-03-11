@@ -89,7 +89,10 @@ router.get('/:id', (req, res) => {
     
     // Get order items
     const items = db.prepare(`
-      SELECT ivo.*, iv.barcode, i.name as item_name, v.variant_name, c.name as category
+      SELECT ivo.*, iv.barcode, i.name as item_name, v.variant_name, c.name as category,
+             ivo.discount_source, ivo.discount_type as item_discount_type, 
+             ivo.discount_value as item_discount_value, ivo.discount_amount as item_discount_amount,
+             ivo.original_price
       FROM item_variant_order ivo
       JOIN item_variant iv ON ivo.item_variant_id = iv.id
       JOIN item i ON iv.item_id = i.id
@@ -130,6 +133,7 @@ router.post('/', (req, res) => {
   }
   
   // Calculate total amount
+  // unit_price is already the discounted price (item/brand/global discounts applied)
   let subtotal = 0;
   for (const item of items) {
     subtotal += item.unit_price * item.qty;
@@ -157,12 +161,19 @@ router.post('/', (req, res) => {
     const orderId = orderResult.lastInsertRowid;
     
     // Insert order items and update stock
-    const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price) VALUES (?, ?, ?, ?)');
+    const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const getBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY expire_date ASC, created_at ASC');
     const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
     
     for (const item of items) {
-      insertItem.run(item.item_variant_id, orderId, item.qty, item.unit_price);
+      insertItem.run(
+        item.item_variant_id, orderId, item.qty, item.unit_price,
+        item.discount_source || null,
+        item.discount_type || null,
+        parseFloat(item.discount_value) || 0,
+        parseFloat(item.discount_amount) || 0,
+        parseFloat(item.original_price) || item.unit_price
+      );
       
       // Deduct stock using FIFO (by expiry date first, then created date)
       const batches = getBatches.all(item.item_variant_id);
@@ -309,6 +320,7 @@ router.put('/:id', (req, res) => {
   }
 
   // Calculate total amount
+  // unit_price is already the discounted price (item/brand/global discounts applied)
   let subtotal = 0;
   for (const item of items) {
     subtotal += item.unit_price * item.qty;
@@ -358,12 +370,19 @@ router.put('/:id', (req, res) => {
       db.prepare('DELETE FROM item_variant_order WHERE order_id = ?').run(id);
       
       // Insert new order items and deduct stock
-      const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price) VALUES (?, ?, ?, ?)');
+      const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       const getFifoBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC');
       const deductBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
       
       for (const item of items) {
-        insertItem.run(item.item_variant_id, id, item.qty, item.unit_price);
+        insertItem.run(
+          item.item_variant_id, id, item.qty, item.unit_price,
+          item.discount_source || null,
+          item.discount_type || null,
+          parseFloat(item.discount_value) || 0,
+          parseFloat(item.discount_amount) || 0,
+          parseFloat(item.original_price) || item.unit_price
+        );
         
         // Deduct stock using FIFO
         const batches = getFifoBatches.all(item.item_variant_id);

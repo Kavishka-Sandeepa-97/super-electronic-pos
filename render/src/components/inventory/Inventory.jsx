@@ -648,6 +648,61 @@ const Inventory = () => {
             <Grid item xs={12} sm={6}>
               <TextField fullWidth label="Selling Price" type="number" value={newItem.sellingPrice || ''} onChange={(e) => setNewItem({ ...newItem, sellingPrice: e.target.value })} InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }} />
             </Grid>
+
+            {/* Discount Settings */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" gutterBottom color="secondary" sx={{ fontWeight: 'bold' }}>
+                Discount Settings
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth>
+                <InputLabel>Discount Active</InputLabel>
+                <Select
+                  value={newItem.isDiscountActive ? 'yes' : 'no'}
+                  label="Discount Active"
+                  onChange={(e) => setNewItem({ ...newItem, isDiscountActive: e.target.value === 'yes' })}
+                >
+                  <MenuItem value="no">No</MenuItem>
+                  <MenuItem value="yes">Yes</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <FormControl fullWidth disabled={!newItem.isDiscountActive}>
+                <InputLabel>Discount Type</InputLabel>
+                <Select
+                  value={newItem.discountType || 'percentage'}
+                  label="Discount Type"
+                  onChange={(e) => setNewItem({ ...newItem, discountType: e.target.value })}
+                >
+                  <MenuItem value="fixed">Fixed (Rs.)</MenuItem>
+                  <MenuItem value="percentage">Percentage (%)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label={newItem.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
+                type="number"
+                value={newItem.discountValue || ''}
+                onChange={(e) => setNewItem({ ...newItem, discountValue: e.target.value })}
+                disabled={!newItem.isDiscountActive}
+                inputProps={{ min: 0, step: 0.01 }}
+              />
+            </Grid>
+            {newItem.isDiscountActive && newItem.sellingPrice && newItem.discountValue ? (
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  Final Price: Rs. {newItem.discountType === 'percentage'
+                    ? (parseFloat(newItem.sellingPrice) - (parseFloat(newItem.sellingPrice) * parseFloat(newItem.discountValue) / 100)).toFixed(2)
+                    : (parseFloat(newItem.sellingPrice) - parseFloat(newItem.discountValue)).toFixed(2)
+                  }
+                </Alert>
+              </Grid>
+            ) : null}
           </Grid>
         </DialogContent>
         <DialogActions>

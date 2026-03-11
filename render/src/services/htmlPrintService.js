@@ -22,10 +22,15 @@ const htmlPrintService = {
 
       // Calculate totals
       let subtotal = 0;
+      let originalSubtotal = 0;
+      let totalItemDiscounts = 0;
       items.forEach((it) => {
         const qty = parseFloat(it.quantity || it.qty || 0) || 0;
         const price = parseFloat(it.price || it.unit_price || 0) || 0;
+        const origPrice = parseFloat(it.original_price || it.originalPrice || 0) || price;
         subtotal += qty * price;
+        originalSubtotal += qty * origPrice;
+        totalItemDiscounts += (parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0) * qty;
       });
 
       // Calculate discount amount
@@ -61,6 +66,7 @@ const htmlPrintService = {
           .items td:first-child { width: 60%; word-break: break-all; }
           .items td:nth-child(2) { width: 10%; text-align: center;}
           .items td:nth-child(3) { width: 30%; text-align: center; }
+          .disc-row td { font-size: 11px; color: #555; padding: 0 0 2px 8px; }
           .sep { border-top: 1px dashed #000; margin: 8px 0; }
         </style>
       `;
@@ -72,7 +78,17 @@ const htmlPrintService = {
         const qty = parseFloat(it.quantity || it.qty || 0) || 0;
         const price = parseFloat(it.price || it.unit_price || 0) || 0;
         const lineTotal = (qty * price).toFixed(2);
-        return `<tr class="items"><td>${displayName}</td><td>${qty}</td><td class="right">${lineTotal}</td></tr>`;
+        const discAmt = parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0;
+        const discSource = it.discount_source || it.discountSource || '';
+        const discType = it.item_discount_type || it.discount_type || it.discountType || '';
+        const discVal = parseFloat(it.item_discount_value || it.discount_value || it.discountValue || 0) || 0;
+        let row = `<tr class="items"><td>${displayName}</td><td>${qty}</td><td class="right">${lineTotal}</td></tr>`;
+        if (discAmt > 0 && discSource) {
+          const discLabel = discSource === 'item' ? 'Item Disc' : discSource === 'brand' ? 'Brand Disc' : discSource === 'global' ? 'Global Disc' : 'Disc';
+          const discInfo = discType === 'percentage' ? `${discVal}%` : `${currency} ${discVal.toFixed(2)}`;
+          row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;${discLabel}: -${discInfo} per unit</td></tr>`;
+        }
+        return row;
       }).join('');
 
       const html = `
@@ -112,7 +128,8 @@ const htmlPrintService = {
               <div class="sep"></div>
 
               <table>
-                <tr><td>Subtotal</td><td class="center">${currency} ${subtotal.toFixed(2)}</td></tr>
+                <tr><td>Subtotal</td><td class="center">${currency} ${totalItemDiscounts > 0 ? originalSubtotal.toFixed(2) : subtotal.toFixed(2)}</td></tr>
+                ${totalItemDiscounts > 0 ? `<tr><td>Item Discounts</td><td class="center">- ${currency} ${totalItemDiscounts.toFixed(2)}</td></tr>` : ''}
                 ${discountAmount > 0 ? `<tr><td>Discount${discount_type === 'percent' ? ` (${discount_value}%)` : ''}</td><td class="center">- ${currency} ${discountAmount.toFixed(2)}</td></tr>` : ''}
                 ${additionalCharges > 0 ? `<tr><td>Additional Charge</td><td class="center">${currency} ${additionalCharges.toFixed(2)}</td></tr>` : ''}
                 <tr><td><strong>TOTAL</strong></td><td class="center"><strong>${currency} ${total.toFixed(2)}</strong></td></tr>
@@ -176,10 +193,15 @@ const htmlPrintService = {
 
       // Calculate totals
       let subtotal = 0;
+      let originalSubtotal = 0;
+      let totalItemDiscounts = 0;
       items.forEach((it) => {
         const qty = parseFloat(it.quantity || it.qty || 0) || 0;
         const price = parseFloat(it.price || it.unit_price || 0) || 0;
+        const origPrice = parseFloat(it.original_price || it.originalPrice || 0) || price;
         subtotal += qty * price;
+        originalSubtotal += qty * origPrice;
+        totalItemDiscounts += (parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0) * qty;
       });
 
       let discountAmount = 0;
@@ -230,10 +252,25 @@ const htmlPrintService = {
         const lineTotal = (qty * price).toFixed(2);
         
         receipt += displayName.padEnd(26) + qty.toString().padStart(3) + lineTotal.padStart(12) + '\n';
+
+        // Show per-item discount info
+        const discAmt = parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0;
+        const discSource = it.discount_source || it.discountSource || '';
+        const discType = it.item_discount_type || it.discount_type || it.discountType || '';
+        const discVal = parseFloat(it.item_discount_value || it.discount_value || it.discountValue || 0) || 0;
+        if (discAmt > 0 && discSource) {
+          const discLabel = discSource === 'item' ? 'Item Disc' : discSource === 'brand' ? 'Brand Disc' : discSource === 'global' ? 'Global Disc' : 'Disc';
+          const discInfo = discType === 'percentage' ? `${discVal}%` : `${currency} ${discVal.toFixed(2)}`;
+          receipt += `  ${discLabel}: -${discInfo}/unit\n`;
+        }
       });
       
       receipt += line + '\n';
-      receipt += `Subtotal:`.padEnd(36) + `${currency} ${subtotal.toFixed(2)}\n`;
+      receipt += `Subtotal:`.padEnd(36) + `${currency} ${totalItemDiscounts > 0 ? originalSubtotal.toFixed(2) : subtotal.toFixed(2)}\n`;
+      
+      if (totalItemDiscounts > 0) {
+        receipt += `Item Discounts:`.padEnd(36) + `- ${currency} ${totalItemDiscounts.toFixed(2)}\n`;
+      }
       
       if (discountAmount > 0) {
         const discLabel = discount_type === 'percent' ? `Discount (${discount_value}%):` : 'Discount:';
