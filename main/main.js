@@ -122,37 +122,38 @@ function registerIPCHandlers() {
     }
   });
 
-  // Print receipt/bill using raw text
+  // Print receipt/bill using HTML (silent print to selected printer)
   ipcMain.handle('print-receipt', async (event, { content, printerName }) => {
     try {
-      // For Windows, we'll use silent printing with the system printer
-      // Create a temporary file with the receipt content
-      const tempDir = os.tmpdir();
-      const tempFile = path.join(tempDir, `receipt-${Date.now()}.txt`);
+      const printWin = new BrowserWindow({
+        show: false,
+        width: 350,
+        height: 800,
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+      });
 
-      // Write the content to temp file
-      fs.writeFileSync(tempFile, content, 'utf8');
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
 
-      // Use Windows print command with better error handling
       return new Promise((resolve) => {
-        // Use double quotes and better error handling
-        const printCommand = `powershell -Command "try { Get-Content '${tempFile}' | Out-Printer -Name '${printerName}'; Write-Host 'Print command executed successfully' } catch { Write-Error $_.Exception.Message; exit 1 }"`;
-
-        exec(printCommand, { timeout: 10000 }, (error, stdout, stderr) => {
-          // Clean up temp file
-          try {
-            fs.unlinkSync(tempFile);
-          } catch (cleanupError) {
-            // Ignore cleanup errors
-          }
-
-          if (error) {
-            const errorMessage = stderr || error.message || 'Unknown print error';
-            resolve({ success: false, error: errorMessage });
-          } else {
-            resolve({ success: true, message: 'Printed successfully' });
-          }
-        });
+        // Small delay to let content render
+        setTimeout(() => {
+          printWin.webContents.print(
+            {
+              silent: true,
+              deviceName: printerName,
+              printBackground: true,
+              margins: { marginType: 'none' }
+            },
+            (success, failureReason) => {
+              printWin.close();
+              if (success) {
+                resolve({ success: true, message: 'Printed successfully' });
+              } else {
+                resolve({ success: false, error: failureReason || 'Print failed' });
+              }
+            }
+          );
+        }, 200);
       });
     } catch (error) {
       return { success: false, error: error.message };

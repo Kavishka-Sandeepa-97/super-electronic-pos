@@ -12,8 +12,9 @@ import {
   Alert,
   CircularProgress,
   Divider,
+  Slider,
 } from '@mui/material';
-import { Print, CheckCircle, Error } from '@mui/icons-material';
+import { Print, CheckCircle, Error, TextFields } from '@mui/icons-material';
 import htmlPrintService from '../../services/htmlPrintService';
 import { toast } from 'react-toastify';
 
@@ -27,6 +28,21 @@ const PrinterSettings = () => {
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [printerStatus, setPrinterStatus] = useState(null);
+  const [receiptFont, setReceiptFont] = useState(() => localStorage.getItem('receiptFontFamily') || 'Arial');
+  const [receiptFontWeight, setReceiptFontWeight] = useState(() => localStorage.getItem('receiptFontWeight') || 'bold');
+  const [receiptFontSize, setReceiptFontSize] = useState(() => parseInt(localStorage.getItem('receiptFontSize') || '13'));
+
+  const fontOptions = [
+    { value: 'Arial', label: 'Arial' },
+    { value: 'Helvetica', label: 'Helvetica' },
+    { value: 'Tahoma', label: 'Tahoma' },
+    { value: 'Verdana', label: 'Verdana' },
+    { value: 'Trebuchet MS', label: 'Trebuchet MS' },
+    { value: 'Segoe UI', label: 'Segoe UI' },
+    { value: 'Consolas', label: 'Consolas (Monospace)' },
+    { value: 'Courier New', label: 'Courier New (Monospace)' },
+    { value: 'Lucida Console', label: 'Lucida Console (Monospace)' },
+  ];
 
   // Get IPC Renderer
   const getIpcRenderer = () => {
@@ -89,6 +105,23 @@ const PrinterSettings = () => {
     setSelectedPrinter(newPrinter);
     localStorage.setItem('selectedPrinter', newPrinter);
     toast.success(`Printer set to: ${newPrinter}`);
+  };
+
+  const handleFontChange = (event) => {
+    const font = event.target.value;
+    setReceiptFont(font);
+    localStorage.setItem('receiptFontFamily', font);
+  };
+
+  const handleFontWeightChange = (event) => {
+    const weight = event.target.value;
+    setReceiptFontWeight(weight);
+    localStorage.setItem('receiptFontWeight', weight);
+  };
+
+  const handleFontSizeChange = (event, newValue) => {
+    setReceiptFontSize(newValue);
+    localStorage.setItem('receiptFontSize', String(newValue));
   };
 
   const handleTestPrint = async () => {
@@ -209,6 +242,92 @@ const PrinterSettings = () => {
               >
                 {testing ? 'Printing...' : 'Test Print'}
               </Button>
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TextFields /> Receipt Font Settings
+            </Typography>
+
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+              <FormControl sx={{ minWidth: 200, flex: 1 }}>
+                <InputLabel>Font</InputLabel>
+                <Select
+                  value={receiptFont}
+                  onChange={handleFontChange}
+                  label="Font"
+                >
+                  {fontOptions.map((f) => (
+                    <MenuItem key={f.value} value={f.value} sx={{ fontFamily: f.value }}>
+                      {f.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 150 }}>
+                <InputLabel>Font Weight</InputLabel>
+                <Select
+                  value={receiptFontWeight}
+                  onChange={handleFontWeightChange}
+                  label="Font Weight"
+                >
+                  <MenuItem value="normal">Normal</MenuItem>
+                  <MenuItem value="bold">Bold</MenuItem>
+                  <MenuItem value="900">Extra Bold</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" gutterBottom>Font Size: {receiptFontSize}px</Typography>
+              <Slider
+                value={receiptFontSize}
+                onChange={handleFontSizeChange}
+                min={10}
+                max={18}
+                step={1}
+                marks
+                valueLabelDisplay="auto"
+                sx={{ maxWidth: 300 }}
+              />
+            </Box>
+
+            <Box sx={{ 
+              border: '1px solid #ccc', 
+              borderRadius: 1, 
+              p: 2, 
+              mb: 2, 
+              maxWidth: 360,
+              backgroundColor: '#fff'
+            }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                Preview:
+              </Typography>
+              <Box sx={{ 
+                fontFamily: `'${receiptFont}', Arial, sans-serif`, 
+                fontWeight: receiptFontWeight, 
+                fontSize: `${receiptFontSize}px`,
+                color: '#000'
+              }}>
+                <Box sx={{ textAlign: 'center', fontWeight: 900, fontSize: '18px', mb: 0.5 }}>SUPER GLOW</Box>
+                <Box sx={{ textAlign: 'center', fontSize: '11px' }}>Colombo, Sri Lanka</Box>
+                <Box sx={{ borderTop: '1px dashed #000', my: 1 }} />
+                <Box>Order #: 123</Box>
+                <Box>Date: 3/12/2026 10:30 AM</Box>
+                <Box sx={{ borderTop: '1px dashed #000', my: 1 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Sample Item</span>
+                  <span>1</span>
+                  <span>Rs 500.00</span>
+                </Box>
+                <Box sx={{ borderTop: '1px dashed #000', my: 1 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900 }}>
+                  <span>TOTAL</span>
+                  <span>Rs 500.00</span>
+                </Box>
+              </Box>
             </Box>
 
             <Box sx={{ mt: 3 }}>

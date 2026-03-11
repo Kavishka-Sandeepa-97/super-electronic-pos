@@ -56,6 +56,7 @@ import { openModal, closeModal } from '../../store/slices/uiSlice';
 import { fetchItemVariants } from '../../store/slices/inventorySlice';
 import { setActiveShift } from '../../store/slices/authSlice';
 import { cashierShiftAPI } from '../../services/api';
+import api from '../../services/api';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
 import SetActiveDialog from './SetActiveDialog';
@@ -76,6 +77,33 @@ const OrderSummary = () => {
   const [editDiscountItem, setEditDiscountItem] = useState(null);
   const [editDiscountType, setEditDiscountType] = useState('percentage');
   const [editDiscountValue, setEditDiscountValue] = useState('');
+  const [globalDiscountSettings, setGlobalDiscountSettings] = useState(null);
+
+  // Fetch global discount settings
+  useEffect(() => {
+    api.globalDiscount.get().then(settings => {
+      setGlobalDiscountSettings(settings);
+    }).catch(() => {});
+  }, []);
+
+  // Auto-apply global discount when active and items exist
+  useEffect(() => {
+    if (globalDiscountSettings?.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0 && currentOrder.items.length > 0) {
+      const gType = globalDiscountSettings.global_discount_type; // 'percentage' or 'fixed'
+      const gValue = parseFloat(globalDiscountSettings.global_discount_value);
+      const uiType = gType === 'percentage' ? 'percent' : 'fixed';
+      if (discountType !== uiType || discountValue !== String(gValue)) {
+        setDiscountType(uiType);
+        setDiscountValue(String(gValue));
+        if (uiType === 'percent') {
+          const discountAmount = Math.round((gValue / 100) * currentOrder.subtotal * 100) / 100;
+          dispatch(setDiscount(discountAmount));
+        } else {
+          dispatch(setDiscount(Math.round(gValue * 100) / 100));
+        }
+      }
+    }
+  }, [globalDiscountSettings, currentOrder.items.length, currentOrder.subtotal]);
 
   // Clear local states when starting a new order
   useEffect(() => {
@@ -268,8 +296,8 @@ const OrderSummary = () => {
       const storeInfo = {
         name: 'Super Glow',
         address: 'Ganemulla',
-        phone: '076 670 2231',
-        receiptFooter: 'Thank you for dining with us!',
+        phone: '071 160 0925',
+        receiptFooter: 'Thank you Come Again..!',
         currencySymbol: 'Rs'
       };
 
@@ -583,7 +611,18 @@ const OrderSummary = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <Typography variant="body1">Discount</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="body1">Discount</Typography>
+                    {globalDiscountSettings?.is_global_discount_active && (
+                      <Chip
+                        icon={<LocalOffer sx={{ fontSize: '0.7rem !important' }} />}
+                        label="Global"
+                        size="small"
+                        color="warning"
+                        sx={{ height: 20, fontSize: '0.65rem' }}
+                      />
+                    )}
+                  </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Select
                       size="small"
@@ -593,6 +632,7 @@ const OrderSummary = () => {
                         setDiscountValue('');
                       }}
                       sx={{ width: 100 }}
+                      disabled={!!globalDiscountSettings?.is_global_discount_active}
                     >
                       <MenuItem value="fixed">Fixed</MenuItem>
                       <MenuItem value="percent">Percent</MenuItem>
@@ -603,6 +643,7 @@ const OrderSummary = () => {
                         size="small"
                         type="number"
                         value={discountValue || ''}
+                        disabled={!!globalDiscountSettings?.is_global_discount_active}
                         onChange={(e) => {
                           const inputValue = e.target.value;
                           // Keep the raw string value to avoid floating point issues
