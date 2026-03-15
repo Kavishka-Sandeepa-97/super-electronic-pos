@@ -1,6 +1,8 @@
 // HTML/CSS print service for browser/Electron printing
 // Opens a window containing a printable receipt and triggers window.print()
 
+import JsBarcode from 'jsbarcode';
+
 // Helper to get ipcRenderer in Electron environment
 const getIpcRenderer = () => {
   try {
@@ -154,7 +156,7 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
           <div>Paid: ${currency} ${paid.toFixed(2)}</div>
           ${paid > 0 ? `<div>Change: ${currency} ${change >= 0 ? change.toFixed(2) : '0.00'}</div>` : ''}
 
-          <div class="center small" style="margin-top:12px">${storeInfo.receiptFooter || 'Thank you for your visit!'}</div>
+          <div class="center small" style="margin-top:12px">${storeInfo.receiptFooter || 'Thank you for your visit !'}</div>
         </div>
       </body>
     </html>
@@ -303,20 +305,27 @@ const htmlPrintService = {
       // Generate barcode SVG using Code128
       const generateBarcodeSVG = (code) => {
         if (!code) return '';
-        // Simple Code128 representation - using a web-based barcode generator approach
-        const barcodeId = 'bc_' + Math.random().toString(36).substr(2, 9);
-        return `<svg id="${barcodeId}" class="barcode"></svg>
-                <script>
-                  if (typeof JsBarcode !== 'undefined') {
-                    JsBarcode("#${barcodeId}", "${code}", {
-                      format: "CODE128",
-                      width: 1.5,
-                      height: 25,
-                      displayValue: false,
-                      margin: 0
-                    });
-                  }
-                </script>`;
+        try {
+          if (typeof document === 'undefined') {
+            return '';
+          }
+
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('class', 'barcode');
+
+          JsBarcode(svg, String(code), {
+            format: 'CODE128',
+            width: 1.5,
+            height: 25,
+            displayValue: false,
+            margin: 0
+          });
+
+          return svg.outerHTML;
+        } catch (error) {
+          console.error('Failed to generate barcode SVG:', error);
+          return '';
+        }
       };
 
       // Build labels HTML
@@ -357,29 +366,13 @@ const htmlPrintService = {
           <head>
             <meta charset="utf-8" />
             <title>Barcode Labels - ${barcode}</title>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
             ${styles}
           </head>
           <body>
             ${labelsHtml}
             <script>
-              // Generate all barcodes after page load
+              // Auto print after short delay
               window.onload = function() {
-                document.querySelectorAll('.barcode').forEach(function(svg) {
-                  const id = svg.id;
-                  if (typeof JsBarcode !== 'undefined') {
-                    try {
-                      JsBarcode("#" + id, "${barcode}", {
-                        format: "CODE128",
-                        width: 1.5,
-                        height: 25,
-                        displayValue: false,
-                        margin: 0
-                      });
-                    } catch(e) { console.error(e); }
-                  }
-                });
-                // Auto print after short delay
                 setTimeout(function() {
                   window.print();
                 }, 500);

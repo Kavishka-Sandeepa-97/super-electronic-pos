@@ -140,8 +140,8 @@ const PrinterSettings = () => {
       };
       const storeInfo = {
         name: 'SUPER GLOW',
-        address: 'Colombo, Sri Lanka',
-        phone: '+94 XX XXX XXXX',
+        address: 'Ganemulla',
+        phone: '071 160 0925',
         receiptFooter: 'Thank you for your visit!'
       };
       
