@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -30,26 +30,59 @@ const AddProductDialog = ({
   onClose,
   itemVariants,
   variants,
-  newItemVariant,
-  setNewItemVariant,
-  itemSearchText,
-  setItemSearchText,
-  variantSearchText,
-  setVariantSearchText,
   onSave,
-  onGenerateBarcode,
+  generateBarcode,
   onVariantCreated,
 }) => {
+  const buildEmptyFormData = useCallback(() => ({
+    item_id: '',
+    variant_id: '',
+    barcode: typeof generateBarcode === 'function' ? generateBarcode() : '',
+    sellingPrice: '',
+    buyingPrice: '',
+    quantity: '',
+    expireDate: '',
+    description: '',
+    isDiscountActive: false,
+    discountType: 'percentage',
+    discountValue: '',
+  }), [generateBarcode]);
+
+  const [formData, setFormData] = useState(() => buildEmptyFormData());
+  const [itemSearchText, setItemSearchText] = useState('');
+  const [variantSearchText, setVariantSearchText] = useState('');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [confirmAddOpen, setConfirmAddOpen] = useState(false);
   const [quickVariantName, setQuickVariantName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
+  const formContentRef = useRef(null);
+  const scannerRef = useRef({
+    buffer: '',
+    startedAt: 0,
+    lastKeyAt: 0,
+    maxKeyInterval: 0,
+    resetTimer: null,
+  });
+  const MAX_AUTOCOMPLETE_RESULTS = 120;
+  const SCAN_RESET_DELAY_MS = 90;
+  const SCAN_MAX_KEY_INTERVAL_MS = 45;
+  const SCAN_MIN_LENGTH = 8;
+  const SCAN_MAX_LENGTH = 24;
+
+  useEffect(() => {
+    if (!open) return;
+    setFormData(buildEmptyFormData());
+    setItemSearchText('');
+    setVariantSearchText('');
+    setConfirmAddOpen(false);
+  }, [open, buildEmptyFormData]);
 
   const handleQuickAddVariant = async () => {
     if (!quickVariantName.trim()) return;
     setQuickAdding(true);
     try {
       const created = await api.variants.create({ variant_name: quickVariantName.trim() });
-      setNewItemVariant({ ...newItemVariant, variant_id: created.id });
+      setFormData((prev) => ({ ...prev, variant_id: created.id }));
       onVariantCreated();
       setQuickAddOpen(false);
       setQuickVariantName('');
@@ -76,7 +109,215 @@ const AddProductDialog = ({
     }, []);
   }, [itemVariants]);
 
-  const selectedItem = uniqueItems.find(i => i.id === newItemVariant.item_id) || null;
+  const searchableItems = useMemo(
+    () => uniqueItems.map((item) => ({
+      ...item,
+      _searchName: (item.name || '').toLowerCase(),
+      _searchCategory: (item.category || '').toLowerCase(),
+      _searchId: String(item.id || ''),
+    })),
+    [uniqueItems]
+  );
+
+  const searchableVariants = useMemo(
+    () => variants.map((variant) => ({
+      ...variant,
+      _searchName: (variant.variant_name || '').toLowerCase(),
+      _searchId: String(variant.id || ''),
+    })),
+    [variants]
+  );
+
+  const selectedItem = searchableItems.find(i => i.id === formData.item_id) || null;
+  const selectedVariant = searchableVariants.find(v => v.id === formData.variant_id) || null;
+
+  const getNavigableFields = useCallback(() => {
+    if (!formContentRef.current) return [];
+
+    return Array.from(formContentRef.current.querySelectorAll('[data-nav-index]'))
+      .filter((element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        if (element.hasAttribute('disabled')) return false;
+        if (element.getAttribute('aria-disabled') === 'true') return false;
+        if (element.tabIndex === -1) return false;
+        return true;
+      })
+      .sort((a, b) => Number(a.getAttribute('data-nav-index')) - Number(b.getAttribute('data-nav-index')));
+  }, []);
+
+  const focusAdjacentField = useCallback((currentElement, step) => {
+    const fields = getNavigableFields();
+    const currentIndex = fields.indexOf(currentElement);
+    if (currentIndex === -1) return false;
+
+    const targetIndex = currentIndex + step;
+    if (targetIndex < 0 || targetIndex >= fields.length) return false;
+
+    const target = fields[targetIndex];
+    if (target instanceof HTMLElement) {
+      target.focus();
+      return true;
+    }
+    return false;
+  }, [getNavigableFields]);
+
+  const isTextCaretAtBoundary = (element, direction) => {
+    if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) {
+      return true;
+    }
+
+    try {
+      const start = element.selectionStart;
+      const end = element.selectionEnd;
+      if (start == null || end == null) return true;
+
+      if (direction === 'previous') {
+        return start === 0 && end === 0;
+      }
+
+      const valueLength = element.value?.length || 0;
+      return start === valueLength && end === valueLength;
+    } catch {
+      return true;
+    }
+  };
+
+  const requestSaveConfirmation = useCallback(() => {
+    if (!formData.item_id || !formData.variant_id) {
+      toast.error('Please select both item and variant');
+      return;
+    }
+    if (!formData.buyingPrice || !formData.quantity || !formData.sellingPrice) {
+      toast.error('Please fill in buying price, selling price, and quantity');
+      return;
+    }
+    setConfirmAddOpen(true);
+  }, [formData]);
+
+  const handleFormKeyNavigation = useCallback((event) => {
+    if (quickAddOpen) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.hasAttribute('data-nav-index')) return;
+
+    const isComboBox = target.getAttribute('role') === 'combobox';
+    const isExpanded = target.getAttribute('aria-expanded') === 'true';
+
+    if (event.key === 'Enter') {
+      if (isExpanded) return;
+      if (target instanceof HTMLTextAreaElement && event.shiftKey) return;
+      event.preventDefault();
+      const moved = focusAdjacentField(target, 1);
+      if (!moved) requestSaveConfirmation();
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      if (isComboBox) return;
+      event.preventDefault();
+      focusAdjacentField(target, 1);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      if (isComboBox) return;
+      event.preventDefault();
+      focusAdjacentField(target, -1);
+      return;
+    }
+
+    if (event.key === 'ArrowRight') {
+      if (!isTextCaretAtBoundary(target, 'next')) return;
+      event.preventDefault();
+      focusAdjacentField(target, 1);
+      return;
+    }
+
+    if (event.key === 'ArrowLeft') {
+      if (!isTextCaretAtBoundary(target, 'previous')) return;
+      event.preventDefault();
+      focusAdjacentField(target, -1);
+    }
+  }, [focusAdjacentField, quickAddOpen, requestSaveConfirmation]);
+
+  const handleGenerateBarcode = useCallback(() => {
+    if (typeof generateBarcode !== 'function') return;
+    const nextBarcode = generateBarcode();
+    setFormData((prev) => ({ ...prev, barcode: nextBarcode }));
+  }, [generateBarcode]);
+
+  const handleSaveClick = () => requestSaveConfirmation();
+
+  const handleConfirmAdd = async () => {
+    setConfirmAddOpen(false);
+    await onSave(formData);
+  };
+
+  const resetScannerBuffer = useCallback(() => {
+    const scanner = scannerRef.current;
+    scanner.buffer = '';
+    scanner.startedAt = 0;
+    scanner.lastKeyAt = 0;
+    scanner.maxKeyInterval = 0;
+    if (scanner.resetTimer) {
+      clearTimeout(scanner.resetTimer);
+      scanner.resetTimer = null;
+    }
+  }, []);
+
+  const handleScannerCapture = useCallback((event) => {
+    if (!open || quickAddOpen) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    const scanner = scannerRef.current;
+    const now = Date.now();
+    const isBarcodeChar = /^[A-Za-z0-9]$/.test(event.key);
+
+    if (isBarcodeChar) {
+      const delta = scanner.lastKeyAt ? now - scanner.lastKeyAt : 0;
+      if (!scanner.lastKeyAt || delta > SCAN_RESET_DELAY_MS) {
+        scanner.buffer = event.key;
+        scanner.startedAt = now;
+        scanner.maxKeyInterval = 0;
+      } else {
+        scanner.buffer += event.key;
+        scanner.maxKeyInterval = Math.max(scanner.maxKeyInterval, delta);
+      }
+
+      scanner.lastKeyAt = now;
+      if (scanner.resetTimer) clearTimeout(scanner.resetTimer);
+      scanner.resetTimer = setTimeout(() => {
+        resetScannerBuffer();
+      }, SCAN_RESET_DELAY_MS);
+      return;
+    }
+
+    if (event.key !== 'Enter') return;
+
+    const scannedValue = scanner.buffer;
+    const isScanSpeedValid = scanner.maxKeyInterval <= SCAN_MAX_KEY_INTERVAL_MS;
+    const isScanLengthValid = scannedValue.length >= SCAN_MIN_LENGTH && scannedValue.length <= SCAN_MAX_LENGTH;
+
+    resetScannerBuffer();
+
+    if (!isScanLengthValid || !isScanSpeedValid) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setFormData((prev) => ({ ...prev, barcode: scannedValue }));
+
+    const barcodeInput = formContentRef.current?.querySelector('[data-nav-index="2"]');
+    if (barcodeInput instanceof HTMLElement) {
+      barcodeInput.focus();
+    }
+  }, [open, quickAddOpen, resetScannerBuffer]);
+
+  useEffect(() => () => {
+    resetScannerBuffer();
+  }, [resetScannerBuffer]);
 
   return (
     <Dialog
@@ -90,27 +331,41 @@ const AddProductDialog = ({
         <AddIcon sx={{ color: '#4CAF50' }} />
         Add New Final Selling Product
       </DialogTitle>
-      <DialogContent sx={{ pt: 3 }}>
+      <DialogContent ref={formContentRef} sx={{ pt: 3 }} onKeyDownCapture={handleScannerCapture} onKeyDown={handleFormKeyNavigation}>
         <Grid container spacing={2} sx={{ mt: 0 }}>
           {/* Item Selection */}
           <Grid item xs={12} sm={6}>
             <Autocomplete
-              options={uniqueItems}
+              options={searchableItems}
               getOptionLabel={(option) => option.name || ''}
               value={selectedItem}
-              onChange={(_, newValue) => setNewItemVariant({ ...newItemVariant, item_id: newValue ? newValue.id : '' })}
+              onChange={(_, newValue) => setFormData((prev) => ({ ...prev, item_id: newValue ? newValue.id : '' }))}
               inputValue={itemSearchText}
               onInputChange={(_, newInputValue) => setItemSearchText(newInputValue)}
               filterOptions={(options, { inputValue }) => {
-                const filter = inputValue.toLowerCase();
-                return options.filter(o =>
-                  o.name.toLowerCase().includes(filter) ||
-                  o.category.toLowerCase().includes(filter) ||
-                  o.id.toString().includes(filter)
-                );
+                const filter = (inputValue || '').trim().toLowerCase();
+                if (!filter) return options.slice(0, MAX_AUTOCOMPLETE_RESULTS);
+                return options
+                  .filter((o) =>
+                    o._searchName.includes(filter) ||
+                    o._searchCategory.includes(filter) ||
+                    o._searchId.includes(filter)
+                  )
+                  .slice(0, MAX_AUTOCOMPLETE_RESULTS);
               }}
               renderInput={(params) => (
-                <TextField {...params} label="Select Item *" placeholder="Search by name, category or ID..." required helperText="Type to search through items" />
+                <TextField
+                  {...params}
+                  autoFocus
+                  label="Select Item *"
+                  placeholder="Search by name, category or ID..."
+                  required
+                  helperText="Type to search through items"
+                  inputProps={{
+                    ...params.inputProps,
+                    'data-nav-index': '0',
+                  }}
+                />
               )}
               renderOption={(props, option) => (
                 <Box component="li" {...props}>
@@ -130,21 +385,34 @@ const AddProductDialog = ({
             <Box display="flex" gap={1} alignItems="flex-start">
               <Box flex={1}>
                 <Autocomplete
-                  options={variants}
+                  options={searchableVariants}
                   getOptionLabel={(option) => option.variant_name || ''}
-                  value={variants.find(v => v.id === newItemVariant.variant_id) || null}
-                  onChange={(_, newValue) => setNewItemVariant({ ...newItemVariant, variant_id: newValue ? newValue.id : '' })}
+                  value={searchableVariants.find(v => v.id === formData.variant_id) || null}
+                  onChange={(_, newValue) => setFormData((prev) => ({ ...prev, variant_id: newValue ? newValue.id : '' }))}
                   inputValue={variantSearchText}
                   onInputChange={(_, newInputValue) => setVariantSearchText(newInputValue)}
                   filterOptions={(options, { inputValue }) => {
-                    const filter = inputValue.toLowerCase();
-                    return options.filter(o =>
-                      o.variant_name.toLowerCase().includes(filter) ||
-                      o.id.toString().includes(filter)
-                    );
+                    const filter = (inputValue || '').trim().toLowerCase();
+                    if (!filter) return options.slice(0, MAX_AUTOCOMPLETE_RESULTS);
+                    return options
+                      .filter((o) =>
+                        o._searchName.includes(filter) ||
+                        o._searchId.includes(filter)
+                      )
+                      .slice(0, MAX_AUTOCOMPLETE_RESULTS);
                   }}
                   renderInput={(params) => (
-                    <TextField {...params} label="Select Variant *" placeholder="Search by variant name or ID..." required helperText="Type to search through variants" />
+                    <TextField
+                      {...params}
+                      label="Select Variant *"
+                      placeholder="Search by variant name or ID..."
+                      required
+                      helperText="Type to search through variants"
+                      inputProps={{
+                        ...params.inputProps,
+                        'data-nav-index': '1',
+                      }}
+                    />
                   )}
                   renderOption={(props, option) => (
                     <Box component="li" {...props}>
@@ -199,14 +467,16 @@ const AddProductDialog = ({
             <TextField
               fullWidth
               label="Barcode *"
-              value={newItemVariant.barcode}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, barcode: e.target.value })}
+              value={formData.barcode}
+              onChange={(e) => setFormData((prev) => ({ ...prev, barcode: e.target.value }))}
               placeholder="9-digit barcode"
               required
+              inputProps={{ 'data-nav-index': '2', autoComplete: 'off', inputMode: 'numeric', spellCheck: false }}
+              helperText="Scanner supported: you can scan directly in this popup"
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton onClick={onGenerateBarcode} edge="end" title="Generate new barcode">
+                    <IconButton onClick={handleGenerateBarcode} edge="end" title="Generate new barcode">
                       <RefreshIcon />
                     </IconButton>
                   </InputAdornment>
@@ -221,9 +491,10 @@ const AddProductDialog = ({
               fullWidth
               label="Expire Date"
               type="date"
-              value={newItemVariant.expireDate}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, expireDate: e.target.value })}
+              value={formData.expireDate}
+              onChange={(e) => setFormData((prev) => ({ ...prev, expireDate: e.target.value }))}
               InputLabelProps={{ shrink: true }}
+              inputProps={{ 'data-nav-index': '3' }}
             />
           </Grid>
 
@@ -233,8 +504,9 @@ const AddProductDialog = ({
               fullWidth
               label="Buying Price *"
               type="number"
-              value={newItemVariant.buyingPrice}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, buyingPrice: e.target.value })}
+              value={formData.buyingPrice}
+              onChange={(e) => setFormData((prev) => ({ ...prev, buyingPrice: e.target.value }))}
+              inputProps={{ 'data-nav-index': '4' }}
               InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
               required
             />
@@ -246,8 +518,9 @@ const AddProductDialog = ({
               fullWidth
               label="Selling Price *"
               type="number"
-              value={newItemVariant.sellingPrice}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, sellingPrice: e.target.value })}
+              value={formData.sellingPrice}
+              onChange={(e) => setFormData((prev) => ({ ...prev, sellingPrice: e.target.value }))}
+              inputProps={{ 'data-nav-index': '5' }}
               InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
               required
             />
@@ -259,22 +532,10 @@ const AddProductDialog = ({
               fullWidth
               label="Quantity *"
               type="number"
-              value={newItemVariant.quantity}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, quantity: e.target.value })}
+              value={formData.quantity}
+              onChange={(e) => setFormData((prev) => ({ ...prev, quantity: e.target.value }))}
+              inputProps={{ 'data-nav-index': '6' }}
               required
-            />
-          </Grid>
-
-          {/* Description */}
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              label="Description"
-              value={newItemVariant.description}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, description: e.target.value })}
-              multiline
-              rows={2}
-              placeholder="Optional description..."
             />
           </Grid>
 
@@ -289,9 +550,10 @@ const AddProductDialog = ({
             <FormControl fullWidth>
               <InputLabel>Discount Active</InputLabel>
               <Select
-                value={newItemVariant.isDiscountActive ? 'yes' : 'no'}
+                value={formData.isDiscountActive ? 'yes' : 'no'}
                 label="Discount Active"
-                onChange={(e) => setNewItemVariant({ ...newItemVariant, isDiscountActive: e.target.value === 'yes' })}
+                onChange={(e) => setFormData((prev) => ({ ...prev, isDiscountActive: e.target.value === 'yes' }))}
+                SelectDisplayProps={{ 'data-nav-index': '7' }}
               >
                 <MenuItem value="no">No</MenuItem>
                 <MenuItem value="yes">Yes</MenuItem>
@@ -299,12 +561,13 @@ const AddProductDialog = ({
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <FormControl fullWidth disabled={!newItemVariant.isDiscountActive}>
+            <FormControl fullWidth disabled={!formData.isDiscountActive}>
               <InputLabel>Discount Type</InputLabel>
               <Select
-                value={newItemVariant.discountType || 'percentage'}
+                value={formData.discountType || 'percentage'}
                 label="Discount Type"
-                onChange={(e) => setNewItemVariant({ ...newItemVariant, discountType: e.target.value })}
+                onChange={(e) => setFormData((prev) => ({ ...prev, discountType: e.target.value }))}
+                SelectDisplayProps={{ 'data-nav-index': '8' }}
               >
                 <MenuItem value="fixed">Fixed (Rs.)</MenuItem>
                 <MenuItem value="percentage">Percentage (%)</MenuItem>
@@ -314,20 +577,20 @@ const AddProductDialog = ({
           <Grid item xs={12} sm={4}>
             <TextField
               fullWidth
-              label={newItemVariant.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
+              label={formData.discountType === 'percentage' ? 'Discount (%)' : 'Discount (Rs.)'}
               type="number"
-              value={newItemVariant.discountValue}
-              onChange={(e) => setNewItemVariant({ ...newItemVariant, discountValue: e.target.value })}
-              disabled={!newItemVariant.isDiscountActive}
-              inputProps={{ min: 0, step: 0.01 }}
+              value={formData.discountValue}
+              onChange={(e) => setFormData((prev) => ({ ...prev, discountValue: e.target.value }))}
+              disabled={!formData.isDiscountActive}
+              inputProps={{ min: 0, step: 0.01, 'data-nav-index': '9' }}
             />
           </Grid>
-          {newItemVariant.isDiscountActive && newItemVariant.sellingPrice && newItemVariant.discountValue ? (
+          {formData.isDiscountActive && formData.sellingPrice && formData.discountValue ? (
             <Grid item xs={12}>
               <Alert severity="info">
-                Final Price: Rs. {newItemVariant.discountType === 'percentage'
-                  ? (parseFloat(newItemVariant.sellingPrice) - (parseFloat(newItemVariant.sellingPrice) * parseFloat(newItemVariant.discountValue) / 100)).toFixed(2)
-                  : (parseFloat(newItemVariant.sellingPrice) - parseFloat(newItemVariant.discountValue)).toFixed(2)
+                Final Price: Rs. {formData.discountType === 'percentage'
+                  ? (parseFloat(formData.sellingPrice) - (parseFloat(formData.sellingPrice) * parseFloat(formData.discountValue) / 100)).toFixed(2)
+                  : (parseFloat(formData.sellingPrice) - parseFloat(formData.discountValue)).toFixed(2)
                 }
               </Alert>
             </Grid>
@@ -336,12 +599,63 @@ const AddProductDialog = ({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={onSave} variant="contained" sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}>
+        <Button onClick={handleSaveClick} variant="contained" sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}>
           Add Product
         </Button>
       </DialogActions>
+
+      <Dialog
+        open={confirmAddOpen}
+        onClose={() => setConfirmAddOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            handleConfirmAdd();
+          }
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Confirm Product Add</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Please confirm details before adding this product.
+          </Typography>
+          <Box display="grid" gridTemplateColumns="1fr 1fr" gap={1}>
+            <Typography variant="body2" color="text.secondary">Item</Typography>
+            <Typography variant="body2" fontWeight="bold">{selectedItem?.name || '-'}</Typography>
+            <Typography variant="body2" color="text.secondary">Variant</Typography>
+            <Typography variant="body2" fontWeight="bold">{selectedVariant?.variant_name || '-'}</Typography>
+            <Typography variant="body2" color="text.secondary">Barcode</Typography>
+            <Typography variant="body2" fontWeight="bold">{formData.barcode || '-'}</Typography>
+            <Typography variant="body2" color="text.secondary">Buying Price</Typography>
+            <Typography variant="body2" fontWeight="bold">Rs. {formData.buyingPrice || '0'}</Typography>
+            <Typography variant="body2" color="text.secondary">Selling Price</Typography>
+            <Typography variant="body2" fontWeight="bold">Rs. {formData.sellingPrice || '0'}</Typography>
+            <Typography variant="body2" color="text.secondary">Quantity</Typography>
+            <Typography variant="body2" fontWeight="bold">{formData.quantity || '0'}</Typography>
+            <Typography variant="body2" color="text.secondary">Discount Active</Typography>
+            <Typography variant="body2" fontWeight="bold">{formData.isDiscountActive ? 'Yes' : 'No'}</Typography>
+            {formData.isDiscountActive ? (
+              <>
+                <Typography variant="body2" color="text.secondary">Discount</Typography>
+                <Typography variant="body2" fontWeight="bold">
+                  {formData.discountType === 'percentage' ? `${formData.discountValue || 0}%` : `Rs. ${formData.discountValue || 0}`}
+                </Typography>
+              </>
+            ) : null}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmAddOpen(false)}>Back</Button>
+          <Button onClick={handleConfirmAdd} variant="contained" sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}>
+            Confirm Add
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };
 
-export default AddProductDialog;
+export default React.memo(AddProductDialog);

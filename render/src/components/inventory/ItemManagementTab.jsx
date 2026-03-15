@@ -61,7 +61,7 @@ const ItemManagementTab = ({ categories, itemVariants, loading }) => {
   // ── local search state (isolated from parent — prevents parent re-render on type) ──
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);

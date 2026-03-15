@@ -49,7 +49,7 @@ const InventoryItemsTable = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const debouncedSearch = useDebounce(searchTerm, 250);
 

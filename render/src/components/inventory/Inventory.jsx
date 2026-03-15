@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import imageCompression from 'browser-image-compression';
 import {
   Box,
@@ -126,9 +126,6 @@ const Inventory = () => {
 
   // Add Final Selling Product dialog
   const [addItemVariantDialog, setAddItemVariantDialog] = useState(false);
-  const [newItemVariant, setNewItemVariant] = useState({ item_id: '', variant_id: '', barcode: '', sellingPrice: '', buyingPrice: '', quantity: '', expireDate: '', description: '', isDiscountActive: false, discountType: 'percentage', discountValue: '' });
-  const [itemSearchText, setItemSearchText] = useState('');
-  const [variantSearchText, setVariantSearchText] = useState('');
 
   // Global discount
   const [globalDiscountSettings, setGlobalDiscountSettings] = useState({ is_global_discount_active: false, global_discount_type: 'percentage', global_discount_value: 0, min_order_amount: 0 });
@@ -168,7 +165,7 @@ const Inventory = () => {
     });
   }, [stockBatchData, stockMovementsData, stockFilters, dateFilters]);
 
-  const generateRandomBarcode = () => '200' + Math.floor(100000 + Math.random() * 900000).toString();
+  const generateRandomBarcode = useCallback(() => '200' + Math.floor(100000 + Math.random() * 900000).toString(), []);
 
   const handleTabChange = (_, newValue) => {
     setCurrentTab(newValue);
@@ -217,23 +214,28 @@ const Inventory = () => {
 
   // Overview table handlers
   const handleAddItem = () => {
-    setNewItemVariant({ item_id: '', variant_id: '', barcode: generateRandomBarcode(), sellingPrice: '', buyingPrice: '', quantity: '', expireDate: '', description: '', isDiscountActive: false, discountType: 'percentage', discountValue: '' });
-    setItemSearchText('');
-    setVariantSearchText('');
     setAddItemVariantDialog(true);
   };
 
-  const handleSaveItemVariant = async () => {
-    if (!newItemVariant.item_id || !newItemVariant.variant_id) { toast.error('Please select both item and variant'); return; }
-    if (!newItemVariant.buyingPrice || !newItemVariant.quantity || !newItemVariant.sellingPrice) { toast.error('Please fill in buying price, selling price, and quantity'); return; }
+  const handleCloseAddItemVariantDialog = useCallback(() => {
+    setAddItemVariantDialog(false);
+  }, []);
+
+  const handleSaveItemVariant = useCallback(async (formData) => {
+    if (!formData.item_id || !formData.variant_id) { toast.error('Please select both item and variant'); return; }
+    if (!formData.buyingPrice || !formData.quantity || !formData.sellingPrice) { toast.error('Please fill in buying price, selling price, and quantity'); return; }
     try {
-      const itemVariantResponse = await api.itemVariants.create({ item_id: newItemVariant.item_id, variant_id: newItemVariant.variant_id, barcode: newItemVariant.barcode || null, selling_price: parseFloat(newItemVariant.sellingPrice), staff_id: user?.id, is_discount_active: newItemVariant.isDiscountActive || false, discount_type: newItemVariant.discountType || 'percentage', discount_value: parseFloat(newItemVariant.discountValue) || 0 });
-      await api.stock.addBatch({ item_variant_id: itemVariantResponse.id, buyingPrice: parseFloat(newItemVariant.buyingPrice), quantity: parseInt(newItemVariant.quantity), description: newItemVariant.description || null, expire_date: newItemVariant.expireDate || null });
+      const itemVariantResponse = await api.itemVariants.create({ item_id: formData.item_id, variant_id: formData.variant_id, barcode: formData.barcode || null, selling_price: parseFloat(formData.sellingPrice), staff_id: user?.id, is_discount_active: formData.isDiscountActive || false, discount_type: formData.discountType || 'percentage', discount_value: parseFloat(formData.discountValue) || 0 });
+      await api.stock.addBatch({ item_variant_id: itemVariantResponse.id, buyingPrice: parseFloat(formData.buyingPrice), quantity: parseInt(formData.quantity), description: formData.description || null, expire_date: formData.expireDate || null });
       toast.success('Product added successfully with stock!');
       dispatch(fetchItemVariants());
       setAddItemVariantDialog(false);
     } catch (e) { toast.error('Failed to add product: ' + e.message); }
-  };
+  }, [dispatch, user?.id]);
+
+  const handleVariantCreated = useCallback(() => {
+    dispatch(fetchVariants());
+  }, [dispatch]);
 
   const handleAddStockClick = (item) => {
     if (!item.id) { toast.warning('Please add a variant to this item first.'); return; }
@@ -433,26 +435,6 @@ const Inventory = () => {
     </Grid>
   );
 
-  const LowStockAlert = () =>
-    lowStockItems.length > 0 ? (
-      <Card sx={{ mb: 3, border: '1px solid', borderColor: 'warning.main' }}>
-        <CardContent>
-          <Typography variant="h6" color="warning.main" gutterBottom>Low Stock Alert</Typography>
-          <Grid container spacing={2}>
-            {lowStockItems.slice(0, 6).map((item) => (
-              <Grid item xs={12} sm={6} md={4} key={item.id}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant="body2">{item.name || item.item_name} ({item.variant || item.variant_name})</Typography>
-                  <Chip label={`${item.stock || item.total_stock} left`} color="warning" size="small" />
-                </Box>
-              </Grid>
-            ))}
-          </Grid>
-          {lowStockItems.length > 6 && <Typography variant="body2" color="text.secondary" mt={1}>+{lowStockItems.length - 6} more items need restocking</Typography>}
-        </CardContent>
-      </Card>
-    ) : null;
-
   const CategoryManagement = () => (
     <Card>
       <CardContent>
@@ -488,7 +470,6 @@ const Inventory = () => {
       {currentTab === 0 && (
         <>
           <InventoryOverview />
-          <LowStockAlert />
           {/* Fix 1: paginated table component */}
           <InventoryItemsTable
             itemVariants={itemVariants}
@@ -539,18 +520,12 @@ const Inventory = () => {
       {/* Add Final Selling Product */}
       <AddProductDialog
         open={addItemVariantDialog}
-        onClose={() => setAddItemVariantDialog(false)}
+        onClose={handleCloseAddItemVariantDialog}
         itemVariants={itemVariants}
         variants={variants}
-        newItemVariant={newItemVariant}
-        setNewItemVariant={setNewItemVariant}
-        itemSearchText={itemSearchText}
-        setItemSearchText={setItemSearchText}
-        variantSearchText={variantSearchText}
-        setVariantSearchText={setVariantSearchText}
         onSave={handleSaveItemVariant}
-        onGenerateBarcode={() => setNewItemVariant(prev => ({ ...prev, barcode: generateRandomBarcode() }))}
-        onVariantCreated={() => dispatch(fetchVariants())}
+        generateBarcode={generateRandomBarcode}
+        onVariantCreated={handleVariantCreated}
       />
 
       {/* Add Stock */}
