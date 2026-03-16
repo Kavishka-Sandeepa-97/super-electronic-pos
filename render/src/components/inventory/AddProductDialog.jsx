@@ -25,6 +25,56 @@ import { Autocomplete } from '@mui/material';
 import { toast } from 'react-toastify';
 import api from '../../services/api';
 
+const DATE_DISPLAY_PATTERN = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+const DATE_YEAR_FIRST_PATTERN = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/;
+
+const parseExpiryDateInput = (value) => {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return { isoValue: '', displayValue: '' };
+  }
+
+  const normalizedValue = trimmedValue.replace(/[.\-\s]+/g, '/').replace(/\/+/g, '/');
+
+  let day;
+  let month;
+  let year;
+
+  const displayMatch = normalizedValue.match(DATE_DISPLAY_PATTERN);
+  const isoMatch = normalizedValue.match(DATE_YEAR_FIRST_PATTERN);
+
+  if (displayMatch) {
+    [, day, month, year] = displayMatch;
+  } else if (isoMatch) {
+    [, year, month, day] = isoMatch;
+  } else {
+    return null;
+  }
+
+  const normalizedDay = day.padStart(2, '0');
+  const normalizedMonth = month.padStart(2, '0');
+  const parsedDate = new Date(Number(year), Number(normalizedMonth) - 1, Number(normalizedDay));
+
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.getFullYear() !== Number(year) ||
+    parsedDate.getMonth() !== Number(normalizedMonth) - 1 ||
+    parsedDate.getDate() !== Number(normalizedDay)
+  ) {
+    return null;
+  }
+
+  return {
+    isoValue: `${year}-${normalizedMonth}-${normalizedDay}`,
+    displayValue: `${normalizedDay}/${normalizedMonth}/${year}`,
+  };
+};
+
+const formatExpiryDateForDisplay = (value) => {
+  const parsedValue = parseExpiryDateInput(value);
+  return parsedValue ? parsedValue.displayValue : value;
+};
+
 const AddProductDialog = ({
   open,
   onClose,
@@ -49,13 +99,17 @@ const AddProductDialog = ({
   }), [generateBarcode]);
 
   const [formData, setFormData] = useState(() => buildEmptyFormData());
+  const [expireDateInput, setExpireDateInput] = useState('');
+  const [expireDateError, setExpireDateError] = useState('');
   const [itemSearchText, setItemSearchText] = useState('');
   const [variantSearchText, setVariantSearchText] = useState('');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [confirmAddOpen, setConfirmAddOpen] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState(null);
   const [quickVariantName, setQuickVariantName] = useState('');
   const [quickAdding, setQuickAdding] = useState(false);
   const formContentRef = useRef(null);
+  const itemInputRef = useRef(null);
   const scannerRef = useRef({
     buffer: '',
     startedAt: 0,
@@ -72,10 +126,33 @@ const AddProductDialog = ({
   useEffect(() => {
     if (!open) return;
     setFormData(buildEmptyFormData());
+    setExpireDateInput('');
+    setExpireDateError('');
     setItemSearchText('');
     setVariantSearchText('');
     setConfirmAddOpen(false);
+    setPendingFormData(null);
   }, [open, buildEmptyFormData]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const focusItemInput = () => {
+      const target = itemInputRef.current;
+      if (target instanceof HTMLInputElement) {
+        target.focus();
+        target.select();
+      }
+    };
+
+    // Dialog mount/transition can steal focus, so retry once after mount.
+    const timer = window.setTimeout(focusItemInput, 120);
+    requestAnimationFrame(focusItemInput);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [open]);
 
   const handleQuickAddVariant = async () => {
     if (!quickVariantName.trim()) return;
@@ -183,6 +260,14 @@ const AddProductDialog = ({
   };
 
   const requestSaveConfirmation = useCallback(() => {
+    const normalizedExpireDate = parseExpiryDateInput(expireDateInput);
+
+    if (expireDateInput.trim() && !normalizedExpireDate) {
+      setExpireDateError('Use DD/MM/YYYY format');
+      toast.error('Please enter expiry date as DD/MM/YYYY');
+      return;
+    }
+
     if (!formData.item_id || !formData.variant_id) {
       toast.error('Please select both item and variant');
       return;
@@ -191,8 +276,48 @@ const AddProductDialog = ({
       toast.error('Please fill in buying price, selling price, and quantity');
       return;
     }
+
+    const nextFormData = {
+      ...formData,
+      expireDate: normalizedExpireDate?.isoValue || '',
+    };
+
+    setExpireDateError('');
+    setExpireDateInput(normalizedExpireDate?.displayValue || '');
+    setFormData(nextFormData);
+    setPendingFormData(nextFormData);
     setConfirmAddOpen(true);
-  }, [formData]);
+  }, [expireDateInput, formData]);
+
+  const handleExpireDateChange = useCallback((event) => {
+    const nextValue = event.target.value;
+    setExpireDateInput(nextValue);
+    setExpireDateError('');
+    setPendingFormData(null);
+
+    if (!nextValue.trim()) {
+      setFormData((prev) => ({ ...prev, expireDate: '' }));
+    }
+  }, []);
+
+  const handleExpireDateBlur = useCallback(() => {
+    const normalizedExpireDate = parseExpiryDateInput(expireDateInput);
+
+    if (!expireDateInput.trim()) {
+      setExpireDateError('');
+      setFormData((prev) => ({ ...prev, expireDate: '' }));
+      return;
+    }
+
+    if (!normalizedExpireDate) {
+      setExpireDateError('Use DD/MM/YYYY format');
+      return;
+    }
+
+    setExpireDateError('');
+    setExpireDateInput(normalizedExpireDate.displayValue);
+    setFormData((prev) => ({ ...prev, expireDate: normalizedExpireDate.isoValue }));
+  }, [expireDateInput]);
 
   const handleFormKeyNavigation = useCallback((event) => {
     if (quickAddOpen) return;
@@ -208,6 +333,24 @@ const AddProductDialog = ({
     if (event.key === 'Enter') {
       if (isExpanded) return;
       if (target instanceof HTMLTextAreaElement && event.shiftKey) return;
+
+      if (target.getAttribute('data-nav-index') === '3') {
+        const normalizedExpireDate = parseExpiryDateInput(expireDateInput);
+
+        if (expireDateInput.trim() && !normalizedExpireDate) {
+          event.preventDefault();
+          setExpireDateError('Use DD/MM/YYYY format');
+          toast.error('Please enter expiry date as DD/MM/YYYY');
+          return;
+        }
+
+        if (normalizedExpireDate) {
+          setExpireDateError('');
+          setExpireDateInput(normalizedExpireDate.displayValue);
+          setFormData((prev) => ({ ...prev, expireDate: normalizedExpireDate.isoValue }));
+        }
+      }
+
       event.preventDefault();
       const moved = focusAdjacentField(target, 1);
       if (!moved) requestSaveConfirmation();
@@ -240,7 +383,7 @@ const AddProductDialog = ({
       event.preventDefault();
       focusAdjacentField(target, -1);
     }
-  }, [focusAdjacentField, quickAddOpen, requestSaveConfirmation]);
+  }, [expireDateInput, focusAdjacentField, quickAddOpen, requestSaveConfirmation]);
 
   const handleGenerateBarcode = useCallback(() => {
     if (typeof generateBarcode !== 'function') return;
@@ -248,11 +391,20 @@ const AddProductDialog = ({
     setFormData((prev) => ({ ...prev, barcode: nextBarcode }));
   }, [generateBarcode]);
 
+  const handleBarcodeFocus = useCallback((event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    // Defer selection so focus settles before selecting all text
+    requestAnimationFrame(() => {
+      target.select();
+    });
+  }, []);
+
   const handleSaveClick = () => requestSaveConfirmation();
 
   const handleConfirmAdd = async () => {
     setConfirmAddOpen(false);
-    await onSave(formData);
+    await onSave(pendingFormData || formData);
   };
 
   const resetScannerBuffer = useCallback(() => {
@@ -337,6 +489,7 @@ const AddProductDialog = ({
           <Grid item xs={12} sm={6}>
             <Autocomplete
               options={searchableItems}
+              openOnFocus
               getOptionLabel={(option) => option.name || ''}
               value={selectedItem}
               onChange={(_, newValue) => setFormData((prev) => ({ ...prev, item_id: newValue ? newValue.id : '' }))}
@@ -356,11 +509,11 @@ const AddProductDialog = ({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  autoFocus
                   label="Select Item *"
                   placeholder="Search by name, category or ID..."
                   required
                   helperText="Type to search through items"
+                  inputRef={itemInputRef}
                   inputProps={{
                     ...params.inputProps,
                     'data-nav-index': '0',
@@ -469,6 +622,7 @@ const AddProductDialog = ({
               label="Barcode *"
               value={formData.barcode}
               onChange={(e) => setFormData((prev) => ({ ...prev, barcode: e.target.value }))}
+              onFocus={handleBarcodeFocus}
               placeholder="9-digit barcode"
               required
               inputProps={{ 'data-nav-index': '2', autoComplete: 'off', inputMode: 'numeric', spellCheck: false }}
@@ -490,10 +644,13 @@ const AddProductDialog = ({
             <TextField
               fullWidth
               label="Expire Date"
-              type="date"
-              value={formData.expireDate}
-              onChange={(e) => setFormData((prev) => ({ ...prev, expireDate: e.target.value }))}
-              InputLabelProps={{ shrink: true }}
+              type="text"
+              value={expireDateInput}
+              onChange={handleExpireDateChange}
+              onBlur={handleExpireDateBlur}
+              placeholder="DD/MM/YYYY"
+              error={!!expireDateError}
+              helperText={expireDateError || 'Enter as DD/MM/YYYY'}
               inputProps={{ 'data-nav-index': '3' }}
             />
           </Grid>
@@ -606,7 +763,7 @@ const AddProductDialog = ({
 
       <Dialog
         open={confirmAddOpen}
-        onClose={() => setConfirmAddOpen(false)}
+        onClose={() => { setConfirmAddOpen(false); setPendingFormData(null); }}
         maxWidth="xs"
         fullWidth
         onKeyDown={(event) => {
@@ -635,6 +792,8 @@ const AddProductDialog = ({
             <Typography variant="body2" fontWeight="bold">Rs. {formData.sellingPrice || '0'}</Typography>
             <Typography variant="body2" color="text.secondary">Quantity</Typography>
             <Typography variant="body2" fontWeight="bold">{formData.quantity || '0'}</Typography>
+            <Typography variant="body2" color="text.secondary">Expire Date</Typography>
+            <Typography variant="body2" fontWeight="bold">{pendingFormData?.expireDate ? formatExpiryDateForDisplay(pendingFormData.expireDate) : '-'}</Typography>
             <Typography variant="body2" color="text.secondary">Discount Active</Typography>
             <Typography variant="body2" fontWeight="bold">{formData.isDiscountActive ? 'Yes' : 'No'}</Typography>
             {formData.isDiscountActive ? (
@@ -648,7 +807,7 @@ const AddProductDialog = ({
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmAddOpen(false)}>Back</Button>
+          <Button onClick={() => { setConfirmAddOpen(false); setPendingFormData(null); }}>Back</Button>
           <Button onClick={handleConfirmAdd} variant="contained" sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}>
             Confirm Add
           </Button>
