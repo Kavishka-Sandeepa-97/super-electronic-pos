@@ -2,6 +2,147 @@ const express = require('express');
 const router = express.Router();
 const { getDatabase, getCurrentUTCTimestamp } = require('../database/init');
 
+const isValidOrderStatus = (status) => ['active', 'completed', 'cancelled'].includes(status);
+
+const parsePositiveInteger = (value, label) => {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return parsed;
+};
+
+const parseNonNegativeNumber = (value, label) => {
+  const parsed = parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`Invalid ${label}`);
+  }
+  return parsed;
+};
+
+const parseOptionalNumber = (value, fallback = 0) => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeOrderItems = (items) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Items are required');
+  }
+
+  return items.map((item, index) => {
+    const row = index + 1;
+    const itemVariantId = parsePositiveInteger(item.item_variant_id, `item_variant_id at row ${row}`);
+    const qty = parsePositiveInteger(item.qty, `qty at row ${row}`);
+    const unitPrice = parseNonNegativeNumber(item.unit_price, `unit_price at row ${row}`);
+    const originalPrice = parseOptionalNumber(item.original_price, unitPrice);
+
+    return {
+      item_variant_id: itemVariantId,
+      qty,
+      unit_price: unitPrice,
+      original_price: originalPrice,
+      discount_source: item.discount_source || null,
+      discount_type: item.discount_type || null,
+      discount_value: parseOptionalNumber(item.discount_value, 0),
+      discount_amount: parseOptionalNumber(item.discount_amount, 0),
+      preferred_batch_id: item.preferred_batch_id ? parseInt(item.preferred_batch_id, 10) : null,
+    };
+  });
+};
+
+const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantId, qty, soldUnitPrice, preferredBatchId = null }) => {
+  // If preferredBatchId is given, that batch is sorted first; CASE returns NULL for null param → falls back to pure FIFO automatically
+  const getBatches = db.prepare(`
+    SELECT id, remaining_qty, buy_price, COALESCE(sell_price, 0) AS sell_price
+    FROM stock_batch
+    WHERE item_variant_id = ? AND remaining_qty > 0
+    ORDER BY
+      CASE WHEN id = ? THEN 0 ELSE 1 END,
+      CASE WHEN expire_date IS NULL THEN 1 ELSE 0 END,
+      DATE(expire_date) ASC,
+      created_at ASC,
+      id ASC
+  `);
+  const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
+  const insertAllocation = db.prepare(`
+    INSERT INTO item_variant_order_batch (
+      order_item_id,
+      order_id,
+      item_variant_id,
+      stock_batch_id,
+      qty,
+      batch_buy_price,
+      batch_sell_price,
+      sold_unit_price
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const batches = getBatches.all(itemVariantId, preferredBatchId);
+  let remainingQty = qty;
+  let allocatedQty = 0;
+
+  for (const batch of batches) {
+    if (remainingQty <= 0) {
+      break;
+    }
+
+    const deductQty = Math.min(remainingQty, batch.remaining_qty);
+    updateBatch.run(deductQty, batch.id);
+    insertAllocation.run(
+      orderItemId,
+      orderId,
+      itemVariantId,
+      batch.id,
+      deductQty,
+      parseOptionalNumber(batch.buy_price, 0),
+      parseOptionalNumber(batch.sell_price, 0),
+      soldUnitPrice
+    );
+
+    allocatedQty += deductQty;
+    remainingQty -= deductQty;
+  }
+
+  if (remainingQty > 0) {
+    throw new Error(`Insufficient stock for item variant ${itemVariantId}. Requested ${qty}, available ${allocatedQty}`);
+  }
+};
+
+const clearOrderAllocations = (db, orderId) => {
+  db.prepare('DELETE FROM item_variant_order_batch WHERE order_id = ?').run(orderId);
+};
+
+const restoreOrderStock = (db, orderId) => {
+  const allocations = db.prepare(`
+    SELECT stock_batch_id, qty
+    FROM item_variant_order_batch
+    WHERE order_id = ?
+    ORDER BY id ASC
+  `).all(orderId);
+
+  if (allocations.length > 0) {
+    const restoreBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
+    for (const allocation of allocations) {
+      restoreBatch.run(allocation.qty, allocation.stock_batch_id);
+    }
+    clearOrderAllocations(db, orderId);
+    return;
+  }
+
+  // Legacy fallback for orders created before allocation persistence.
+  const items = db.prepare('SELECT item_variant_id, qty FROM item_variant_order WHERE order_id = ?').all(orderId);
+  const getLatestBatch = db.prepare('SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC, id DESC');
+  const restoreBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
+
+  for (const item of items) {
+    const batches = getLatestBatch.all(item.item_variant_id);
+    if (batches.length > 0) {
+      restoreBatch.run(item.qty, batches[0].id);
+    }
+  }
+};
+
 // Get all orders
 router.get('/', (req, res) => {
   const db = getDatabase();
@@ -100,10 +241,39 @@ router.get('/:id', (req, res) => {
       JOIN category c ON i.category_id = c.id
       WHERE ivo.order_id = ?
     `).all(id);
+
+    const allocations = db.prepare(`
+      SELECT
+        iob.order_item_id,
+        iob.stock_batch_id,
+        iob.qty,
+        iob.batch_buy_price,
+        iob.batch_sell_price,
+        iob.sold_unit_price,
+        sb.expire_date,
+        sb.created_at as batch_created_at
+      FROM item_variant_order_batch iob
+      LEFT JOIN stock_batch sb ON iob.stock_batch_id = sb.id
+      WHERE iob.order_id = ?
+      ORDER BY iob.order_item_id ASC, iob.id ASC
+    `).all(id);
+
+    const allocationMap = allocations.reduce((acc, allocation) => {
+      if (!acc[allocation.order_item_id]) {
+        acc[allocation.order_item_id] = [];
+      }
+      acc[allocation.order_item_id].push(allocation);
+      return acc;
+    }, {});
+
+    const itemsWithAllocations = items.map((item) => ({
+      ...item,
+      batch_allocations: allocationMap[item.id] || []
+    }));
     
     res.json({
       ...order,
-      items: items
+      items: itemsWithAllocations
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -124,29 +294,40 @@ router.post('/', (req, res) => {
     items 
   } = req.body;
   
-  if (!staff_id || !items || items.length === 0) {
-    return res.status(400).json({ error: 'Staff ID and items are required' });
+  if (!staff_id) {
+    return res.status(400).json({ error: 'Staff ID is required' });
   }
 
-  if (!['active', 'completed', 'cancelled'].includes(status)) {
+  if (!isValidOrderStatus(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
+
+  let normalizedItems;
+  try {
+    normalizedItems = normalizeOrderItems(items);
+  } catch (validationError) {
+    return res.status(400).json({ error: validationError.message });
+  }
+
+  const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
+  const safeDiscountValue = parseOptionalNumber(discount_value, 0);
+  const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
   
   // Calculate total amount
   // unit_price is already the discounted price (item/brand/global discounts applied)
   let subtotal = 0;
-  for (const item of items) {
+  for (const item of normalizedItems) {
     subtotal += item.unit_price * item.qty;
   }
   
   let discount_amount = 0;
   if (discount_type === 'percent') {
-    discount_amount = (subtotal * discount_value) / 100;
+    discount_amount = (subtotal * safeDiscountValue) / 100;
   } else if (discount_type === 'fixed') {
-    discount_amount = discount_value;
+    discount_amount = safeDiscountValue;
   }
   
-  const total_amount = subtotal + additional_charges - discount_amount;
+  const total_amount = subtotal + safeAdditionalCharges - discount_amount;
   
   // Use transaction for atomic operations
   const transaction = db.transaction(() => {
@@ -155,36 +336,33 @@ router.post('/', (req, res) => {
       INSERT INTO orders (staff_id, date, additional_charges, total_amount, 
                           customer_name, tender_cash, discount_type, discount_value, status) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(staff_id, getCurrentUTCTimestamp(), additional_charges, total_amount, customer_name, 
-           tender_cash, discount_type, discount_value, status);
+    `).run(staff_id, getCurrentUTCTimestamp(), safeAdditionalCharges, total_amount, customer_name,
+           safeTenderCash, discount_type, safeDiscountValue, status);
     
     const orderId = orderResult.lastInsertRowid;
     
     // Insert order items and update stock
     const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const getBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY expire_date ASC, created_at ASC');
-    const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
     
-    for (const item of items) {
-      insertItem.run(
+    for (const item of normalizedItems) {
+      const itemResult = insertItem.run(
         item.item_variant_id, orderId, item.qty, item.unit_price,
-        item.discount_source || null,
-        item.discount_type || null,
-        parseFloat(item.discount_value) || 0,
-        parseFloat(item.discount_amount) || 0,
-        parseFloat(item.original_price) || item.unit_price
+        item.discount_source,
+        item.discount_type,
+        item.discount_value,
+        item.discount_amount,
+        item.original_price
       );
-      
-      // Deduct stock using FIFO (by expiry date first, then created date)
-      const batches = getBatches.all(item.item_variant_id);
-      let remainingQty = item.qty;
-      
-      for (const batch of batches) {
-        if (remainingQty <= 0) break;
-        
-        const deductQty = Math.min(remainingQty, batch.remaining_qty);
-        updateBatch.run(deductQty, batch.id);
-        remainingQty -= deductQty;
+
+      if (status !== 'cancelled') {
+        allocateOrderItemAcrossBatches(db, {
+          orderId,
+          orderItemId: itemResult.lastInsertRowid,
+          itemVariantId: item.item_variant_id,
+          qty: item.qty,
+          soldUnitPrice: item.unit_price,
+          preferredBatchId: item.preferred_batch_id || null,
+        });
       }
     }
     
@@ -209,6 +387,9 @@ router.post('/', (req, res) => {
       message: 'Order created successfully'
     });
   } catch (err) {
+    if (err.message && err.message.startsWith('Insufficient stock')) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -219,83 +400,82 @@ router.put('/:id/status', (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   
-  if (!['active', 'completed', 'cancelled'].includes(status)) {
+  if (!isValidOrderStatus(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
   
   try {
-    // If cancelling order, restore stock
-    if (status === 'cancelled') {
-      const transaction = db.transaction(() => {
-        // Get order items
-        const items = db.prepare('SELECT item_variant_id, qty FROM item_variant_order WHERE order_id = ?').all(id);
-        
-        if (items.length === 0) {
-          // No items to restore, just update status
-          const result = db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
-          return { changes: result.changes, message: 'Order status updated successfully' };
-        }
-        
-        // Restore stock using LIFO (Last In, First Out) - reverse of FIFO
-        const getBatches = db.prepare('SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC');
-        const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
-        
-        for (const item of items) {
-          const batches = getBatches.all(item.item_variant_id);
-          if (batches.length > 0) {
-            // Restore all qty to the most recent batch
-            updateBatch.run(item.qty, batches[0].id);
-          }
-        }
-        
-        // Update order status
-        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
-        
-        return { message: 'Order cancelled and stock restored successfully' };
-      });
-      
-      const result = transaction();
-      res.json(result);
-    } else {
-      // For other status updates
-      const transaction = db.transaction(() => {
-        // Get order details
-        const order = db.prepare('SELECT total_amount, staff_id, status as current_status FROM orders WHERE id = ?').get(id);
-        
-        if (!order) {
-          throw new Error('Order not found');
-        }
-        
-        // Update order status
-        const result = db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
-        
-        if (result.changes === 0) {
-          throw new Error('Order not found');
-        }
-        
-        // If status changed to 'completed' and was not already completed, update cash
-        if (status === 'completed' && order.current_status !== 'completed') {
-          db.prepare(`
-            UPDATE cashier_shift 
-            SET current_cash_onhand = current_cash_onhand + ? 
-            WHERE staff_id = ? AND status = 'open'
-          `).run(order.total_amount, order.staff_id);
-        }
-        
-        return { message: 'Order status updated successfully' };
-      });
-      
-      try {
-        const result = transaction();
-        res.json(result);
-      } catch (err) {
-        if (err.message === 'Order not found') {
-          return res.status(404).json({ error: err.message });
-        }
-        throw err;
+    const transaction = db.transaction(() => {
+      const order = db.prepare('SELECT total_amount, staff_id, status as current_status FROM orders WHERE id = ?').get(id);
+
+      if (!order) {
+        throw new Error('Order not found');
       }
-    }
+
+      if (order.current_status === status) {
+        return { message: `Order already in ${status} status` };
+      }
+
+      // Cancel: restore exact consumed batches.
+      if (status === 'cancelled' && order.current_status !== 'cancelled') {
+        restoreOrderStock(db, id);
+      }
+
+      // Re-open cancelled order: reserve stock again based on current order items.
+      if (status !== 'cancelled' && order.current_status === 'cancelled') {
+        const existingItems = db.prepare(`
+          SELECT id, item_variant_id, qty, unit_price
+          FROM item_variant_order
+          WHERE order_id = ?
+        `).all(id);
+
+        clearOrderAllocations(db, id);
+        for (const item of existingItems) {
+          allocateOrderItemAcrossBatches(db, {
+            orderId: id,
+            orderItemId: item.id,
+            itemVariantId: item.item_variant_id,
+            qty: item.qty,
+            soldUnitPrice: parseOptionalNumber(item.unit_price, 0)
+          });
+        }
+      }
+
+      const result = db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
+      if (result.changes === 0) {
+        throw new Error('Order not found');
+      }
+
+      let cashChange = 0;
+      if (order.current_status !== 'completed' && status === 'completed') {
+        cashChange = order.total_amount;
+      } else if (order.current_status === 'completed' && status !== 'completed') {
+        cashChange = -order.total_amount;
+      }
+
+      if (cashChange !== 0) {
+        db.prepare(`
+          UPDATE cashier_shift
+          SET current_cash_onhand = current_cash_onhand + ?
+          WHERE staff_id = ? AND status = 'open'
+        `).run(cashChange, order.staff_id);
+      }
+
+      if (status === 'cancelled') {
+        return { message: 'Order cancelled and stock restored successfully' };
+      }
+      return { message: 'Order status updated successfully' };
+    });
+
+    const result = transaction();
+    res.json(result);
   } catch (err) {
+    if (err.message === 'Order not found') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('Insufficient stock')) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -314,56 +494,80 @@ router.put('/:id', (req, res) => {
     tender_cash,
     items 
   } = req.body;
-  
-  if (!items || items.length === 0) {
-    return res.status(400).json({ error: 'Items are required' });
+
+  let normalizedItems;
+  try {
+    normalizedItems = normalizeOrderItems(items);
+  } catch (validationError) {
+    return res.status(400).json({ error: validationError.message });
   }
+
+  if (status !== undefined && !isValidOrderStatus(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
+  const safeDiscountValue = parseOptionalNumber(discount_value, 0);
+  const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
 
   // Calculate total amount
   // unit_price is already the discounted price (item/brand/global discounts applied)
   let subtotal = 0;
-  for (const item of items) {
+  for (const item of normalizedItems) {
     subtotal += item.unit_price * item.qty;
   }
   
   let discount_amount = 0;
   if (discount_type === 'percent') {
-    discount_amount = (subtotal * discount_value) / 100;
+    discount_amount = (subtotal * safeDiscountValue) / 100;
   } else if (discount_type === 'fixed') {
-    discount_amount = discount_value;
+    discount_amount = safeDiscountValue;
   }
   
-  const total_amount = subtotal + additional_charges - discount_amount;
+  const total_amount = subtotal + safeAdditionalCharges - discount_amount;
   
   try {
     const transaction = db.transaction(() => {
       // Get old order details
-      const oldOrder = db.prepare('SELECT total_amount as old_total, status as old_status, staff_id FROM orders WHERE id = ?').get(id);
+      const oldOrder = db.prepare(`
+        SELECT total_amount as old_total, status as old_status, staff_id, tender_cash
+        FROM orders
+        WHERE id = ?
+      `).get(id);
       if (!oldOrder) {
         throw new Error('Order not found');
       }
+
+      const resolvedStatus = status || oldOrder.old_status;
+      const resolvedStaffId = staff_id || oldOrder.staff_id;
+      const resolvedTenderCash = safeTenderCash === null ? oldOrder.tender_cash : safeTenderCash;
       
       // Update order
       const updateResult = db.prepare(`
-        UPDATE orders SET additional_charges = ?, total_amount = ?, 
-                         customer_name = ?, discount_type = ?, discount_value = ?, status = ? 
+        UPDATE orders SET staff_id = ?, additional_charges = ?, total_amount = ?, 
+                         customer_name = ?, discount_type = ?, discount_value = ?, status = ?, tender_cash = ?
         WHERE id = ?
-      `).run(additional_charges, total_amount, customer_name, discount_type, discount_value, status, id);
+      `).run(
+        resolvedStaffId,
+        safeAdditionalCharges,
+        total_amount,
+        customer_name,
+        discount_type,
+        safeDiscountValue,
+        resolvedStatus,
+        resolvedTenderCash,
+        id
+      );
       
       if (updateResult.changes === 0) {
         throw new Error('Order not found');
       }
       
-      // Get old items and restore their stock
-      const oldItems = db.prepare('SELECT item_variant_id, qty FROM item_variant_order WHERE order_id = ?').all(id);
-      const getBatches = db.prepare('SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC');
-      const restoreBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
-      
-      for (const oldItem of oldItems) {
-        const batches = getBatches.all(oldItem.item_variant_id);
-        if (batches.length > 0) {
-          restoreBatch.run(oldItem.qty, batches[0].id);
-        }
+      // Restore previously reserved stock only for non-cancelled orders.
+      if (oldOrder.old_status !== 'cancelled') {
+        restoreOrderStock(db, id);
+      } else {
+        clearOrderAllocations(db, id);
       }
       
       // Delete old order items
@@ -371,35 +575,32 @@ router.put('/:id', (req, res) => {
       
       // Insert new order items and deduct stock
       const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      const getFifoBatches = db.prepare('SELECT id, remaining_qty FROM stock_batch WHERE item_variant_id = ? AND remaining_qty > 0 ORDER BY created_at ASC');
-      const deductBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
       
-      for (const item of items) {
-        insertItem.run(
+      for (const item of normalizedItems) {
+        const itemResult = insertItem.run(
           item.item_variant_id, id, item.qty, item.unit_price,
-          item.discount_source || null,
-          item.discount_type || null,
-          parseFloat(item.discount_value) || 0,
-          parseFloat(item.discount_amount) || 0,
-          parseFloat(item.original_price) || item.unit_price
+          item.discount_source,
+          item.discount_type,
+          item.discount_value,
+          item.discount_amount,
+          item.original_price
         );
         
-        // Deduct stock using FIFO
-        const batches = getFifoBatches.all(item.item_variant_id);
-        let remainingQty = item.qty;
-        
-        for (const batch of batches) {
-          if (remainingQty <= 0) break;
-          
-          const deductQty = Math.min(remainingQty, batch.remaining_qty);
-          deductBatch.run(deductQty, batch.id);
-          remainingQty -= deductQty;
+        if (resolvedStatus !== 'cancelled') {
+          allocateOrderItemAcrossBatches(db, {
+            orderId: id,
+            orderItemId: itemResult.lastInsertRowid,
+            itemVariantId: item.item_variant_id,
+            qty: item.qty,
+            soldUnitPrice: item.unit_price,
+            preferredBatchId: item.preferred_batch_id || null,
+          });
         }
       }
       
       // Adjust cashier cash based on status and total changes
       let cash_change = 0;
-      if (status === 'completed') {
+      if (resolvedStatus === 'completed') {
         if (oldOrder.old_status === 'completed') {
           cash_change = total_amount - oldOrder.old_total;
         } else {
@@ -416,7 +617,7 @@ router.put('/:id', (req, res) => {
           UPDATE cashier_shift 
           SET current_cash_onhand = current_cash_onhand + ? 
           WHERE staff_id = ? AND status = 'open'
-        `).run(cash_change, oldOrder.staff_id);
+        `).run(cash_change, resolvedStaffId);
       }
       
       return { id: id, total_amount };
@@ -431,6 +632,9 @@ router.put('/:id', (req, res) => {
   } catch (err) {
     if (err.message === 'Order not found') {
       return res.status(404).json({ error: err.message });
+    }
+    if (err.message && err.message.startsWith('Insufficient stock')) {
+      return res.status(400).json({ error: err.message });
     }
     res.status(500).json({ error: err.message });
   }
@@ -455,19 +659,43 @@ router.get('/reports/daily', (req, res) => {
     `).get(targetDate);
     
     const topItems = db.prepare(`
-      SELECT i.name as item_name, v.variant_name, 
-             SUM(ivo.qty) as total_qty,
-             SUM(ivo.qty * ivo.unit_price) as total_revenue
-      FROM item_variant_order ivo
-      JOIN orders o ON ivo.order_id = o.id
-      JOIN item_variant iv ON ivo.item_variant_id = iv.id
+      WITH sales_rows AS (
+        SELECT
+          iob.item_variant_id,
+          iob.order_id,
+          iob.qty,
+          iob.sold_unit_price as unit_price
+        FROM item_variant_order_batch iob
+        JOIN orders o ON iob.order_id = o.id
+        WHERE DATE(o.date) = ? AND o.status = 'completed'
+
+        UNION ALL
+
+        SELECT
+          ivo.item_variant_id,
+          ivo.order_id,
+          ivo.qty,
+          ivo.unit_price
+        FROM item_variant_order ivo
+        JOIN orders o ON ivo.order_id = o.id
+        WHERE DATE(o.date) = ? AND o.status = 'completed'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM item_variant_order_batch iob2
+            WHERE iob2.order_item_id = ivo.id
+          )
+      )
+      SELECT i.name as item_name, v.variant_name,
+             SUM(sr.qty) as total_qty,
+             SUM(sr.qty * sr.unit_price) as total_revenue
+      FROM sales_rows sr
+      JOIN item_variant iv ON sr.item_variant_id = iv.id
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id
-      WHERE DATE(o.date) = ? AND o.status = 'completed'
-      GROUP BY ivo.item_variant_id
+      GROUP BY sr.item_variant_id
       ORDER BY total_qty DESC
       LIMIT 10
-    `).all(targetDate);
+    `).all(targetDate, targetDate);
     
     res.json({
       date: targetDate,

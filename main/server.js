@@ -386,16 +386,37 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
     const movements = db.prepare(`
       SELECT 
         'OUT' as type,
+        iob.qty as quantity,
+        iob.sold_unit_price as price,
+        o.date as created_at,
+        o.id as reference_id,
+        'Order #' || o.id || ' / Batch #' || iob.stock_batch_id as description,
+        s.name as staff_name
+      FROM item_variant_order_batch iob
+      JOIN orders o ON iob.order_id = o.id
+      JOIN staff s ON o.staff_id = s.id
+      WHERE iob.item_variant_id = ? AND o.status = 'completed'
+
+      UNION ALL
+
+      SELECT
+        'OUT' as type,
         ivo.qty as quantity,
         ivo.unit_price as price,
         o.date as created_at,
         o.id as reference_id,
-        'Order #' || o.id as description,
+        'Order #' || o.id || ' (legacy)' as description,
         s.name as staff_name
       FROM item_variant_order ivo
       JOIN orders o ON ivo.order_id = o.id
       JOIN staff s ON o.staff_id = s.id
-      WHERE ivo.item_variant_id = ? AND o.status = 'completed'
+      WHERE ivo.item_variant_id = ?
+        AND o.status = 'completed'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM item_variant_order_batch iob2
+          WHERE iob2.order_item_id = ivo.id
+        )
       
       UNION ALL
       
@@ -411,7 +432,7 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
       WHERE sb.item_variant_id = ?
       
       ORDER BY created_at DESC
-    `).all(itemVariantId, itemVariantId);
+    `).all(itemVariantId, itemVariantId, itemVariantId);
     
     res.json(movements);
   } catch (error) {

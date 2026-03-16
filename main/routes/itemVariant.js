@@ -26,7 +26,15 @@ router.get('/', (req, res) => {
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
         SELECT item_variant_id, sell_price,
-               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY created_at DESC, id DESC) as rn
+               ROW_NUMBER() OVER (
+                 PARTITION BY item_variant_id
+                 ORDER BY
+                   CASE WHEN remaining_qty > 0 THEN 0 ELSE 1 END,
+                   CASE WHEN expire_date IS NULL THEN 1 ELSE 0 END,
+                   DATE(expire_date) ASC,
+                   created_at ASC,
+                   id ASC
+               ) as rn
         FROM stock_batch
       ) sbp ON iv.id = sbp.item_variant_id AND sbp.rn = 1
       GROUP BY i.id, iv.id
@@ -62,7 +70,15 @@ router.get('/:id', (req, res) => {
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
         SELECT item_variant_id, sell_price,
-               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY created_at DESC, id DESC) as rn
+               ROW_NUMBER() OVER (
+                 PARTITION BY item_variant_id
+                 ORDER BY
+                   CASE WHEN remaining_qty > 0 THEN 0 ELSE 1 END,
+                   CASE WHEN expire_date IS NULL THEN 1 ELSE 0 END,
+                   DATE(expire_date) ASC,
+                   created_at ASC,
+                   id ASC
+               ) as rn
         FROM stock_batch
       ) sbp ON iv.id = sbp.item_variant_id AND sbp.rn = 1
       WHERE iv.id = ?
@@ -72,7 +88,23 @@ router.get('/:id', (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Item variant not found' });
     }
-    res.json(row);
+
+    const availableBatches = db.prepare(`
+      SELECT id, remaining_qty, sell_price, buy_price, expire_date, created_at
+      FROM stock_batch
+      WHERE item_variant_id = ? AND remaining_qty > 0
+      ORDER BY
+        CASE WHEN expire_date IS NULL THEN 1 ELSE 0 END,
+        DATE(expire_date) ASC,
+        created_at ASC,
+        id ASC
+    `).all(id);
+
+    res.json({
+      ...row,
+      selling_price: availableBatches.length > 0 ? availableBatches[0].sell_price : (row.selling_price || 0),
+      available_batches: availableBatches,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -232,20 +264,24 @@ router.get('/barcode/:barcode', (req, res) => {
       WHERE item_variant_id = ?
     `).get(row.id);
 
-    // Get latest batch selling price
-    const priceRow = db.prepare(`
-      SELECT sell_price
+    // Get available batches in FIFO order (expiry first, then created_at)
+    const availableBatches = db.prepare(`
+      SELECT id, remaining_qty, sell_price, buy_price, expire_date, created_at
       FROM stock_batch
-      WHERE item_variant_id = ?
-      ORDER BY created_at DESC, id DESC
-      LIMIT 1
-    `).get(row.id);
+      WHERE item_variant_id = ? AND remaining_qty > 0
+      ORDER BY
+        CASE WHEN expire_date IS NULL THEN 1 ELSE 0 END,
+        DATE(expire_date) ASC,
+        created_at ASC,
+        id ASC
+    `).all(row.id);
 
-    // Combine all data
+    // Combine all data - selling_price is the FIFO (oldest) batch price
     const result = {
       ...row,
       total_stock: stockRow?.total_stock || 0,
-      selling_price: priceRow?.sell_price || 0
+      selling_price: availableBatches.length > 0 ? availableBatches[0].sell_price : 0,
+      available_batches: availableBatches,
     };
 
     res.json(result);

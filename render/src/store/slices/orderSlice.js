@@ -117,7 +117,7 @@ const orderSlice = createSlice({
       };
     },
     addItemToOrder: (state, action) => {
-      const { itemVariant, quantity = 1, globalDiscountSettings } = action.payload;
+      const { itemVariant, quantity = 1, globalDiscountSettings, preferredBatchId = null } = action.payload;
       const existingItem = state.currentOrder.items.find(
         item => item.itemVariantId === itemVariant.id
       );
@@ -188,6 +188,7 @@ const orderSlice = createSlice({
           brandDiscountActive: !!itemVariant.brand_discount_active,
           brandDiscountType: itemVariant.brand_discount_type,
           brandDiscountValue: parseFloat(itemVariant.brand_discount_value) || 0,
+          preferredBatchId: preferredBatchId || null,
         });
       }
 

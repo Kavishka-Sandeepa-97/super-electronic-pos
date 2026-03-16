@@ -54,6 +54,7 @@ import OrderSummary from './OrderSummary';
 import ActiveOrdersDialog from './ActiveOrdersDialog';
 import BarcodeNotFoundDialog from './BarcodeNotFoundDialog';
 import OrderHistoryDialog from './OrderHistoryDialog';
+import BatchSelectionDialog from './BatchSelectionDialog';
 import CategoryMenu from './CategoryMenu';
 import BrandMenu from './BrandMenu';
 import { toast } from 'react-toastify';
@@ -88,6 +89,10 @@ const POSInterface = () => {
   const [successMessage, setSuccessMessage] = useState(null);
   const [orderHistoryOpen, setOrderHistoryOpen] = useState(false);
 
+  // Batch selection dialog state
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchDialogData, setBatchDialogData] = useState(null); // { itemVariant, batches }
+
   // Global discount settings
   const [globalDiscountSettings, setGlobalDiscountSettings] = useState(null);
 
@@ -95,6 +100,38 @@ const POSInterface = () => {
   const { resetBarcode } = useBarcodeScanner(
     (barcode) => handleBarcodeScanned(barcode)
   );
+
+  // Helper: get unique sell prices from available batches
+  const getUniquePrices = (batches) => {
+    const prices = new Set(batches.map((b) => parseFloat(b.sell_price).toFixed(2)));
+    return [...prices];
+  };
+
+  // Helper: add item directly (single price or after batch selected)
+  const addItemWithPrice = useCallback((itemVariant, sellPrice, barcode, preferredBatchId = null) => {
+    dispatch(addItemToOrder({
+      itemVariant: { ...itemVariant, selling_price: sellPrice, sellingPrice: sellPrice },
+      quantity: 1,
+      globalDiscountSettings,
+      preferredBatchId,
+    }));
+    setSuccessMessage({
+      name: itemVariant.item_name,
+      variant: itemVariant.variant_name,
+      barcode: barcode || itemVariant.barcode || '',
+    });
+    toast.success(`${itemVariant.item_name} added to order`);
+    setTimeout(() => setSuccessMessage(null), 2000);
+  }, [dispatch, globalDiscountSettings]);
+
+  // Handle batch dialog confirm
+  const handleBatchConfirm = useCallback((selectedBatch, _reason) => {
+    if (!batchDialogData) return;
+    const { itemVariant, barcode } = batchDialogData;
+    addItemWithPrice(itemVariant, parseFloat(selectedBatch.sell_price), barcode, selectedBatch.id);
+    setBatchDialogOpen(false);
+    setBatchDialogData(null);
+  }, [batchDialogData, addItemWithPrice]);
 
   // Handle barcode scan
   const handleBarcodeScanned = useCallback(async (barcode) => {
@@ -111,40 +148,31 @@ const POSInterface = () => {
       }
 
       const itemVariant = await response.json();
+      const batches = itemVariant.available_batches || [];
 
       // Check if item has stock
-      if (itemVariant.total_stock <= 0) {
+      if (batches.length === 0) {
         toast.error(`${itemVariant.item_name} is out of stock`);
         return;
       }
 
-      // Add item to order
-      dispatch(addItemToOrder({
-        itemVariant: {
-          ...itemVariant,
-          sellingPrice: parseFloat(itemVariant.selling_price)
-        },
-        quantity: 1,
-        globalDiscountSettings
-      }));
-      
-      // Show success notification
-      setSuccessMessage({
-        name: itemVariant.item_name,
-        variant: itemVariant.variant_name,
-        barcode: barcode
-      });
-      toast.success(`${itemVariant.item_name} added to order`);
+      const uniquePrices = getUniquePrices(batches);
 
-      // Auto-hide success message after 2 seconds
-      setTimeout(() => setSuccessMessage(null), 2000);
+      if (uniquePrices.length > 1) {
+        // Multiple prices — let cashier select
+        setBatchDialogData({ itemVariant, batches, barcode });
+        setBatchDialogOpen(true);
+      } else {
+        // Single price — use FIFO batch price
+        addItemWithPrice(itemVariant, parseFloat(batches[0].sell_price), barcode);
+      }
 
     } catch (error) {
       setFailedBarcode(barcode);
       setBarcodeNotFoundOpen(true);
       toast.error(`Error scanning barcode: ${error.message}`);
     }
-  }, [dispatch, globalDiscountSettings]);
+  }, [addItemWithPrice]);
 
   useEffect(() => {
     dispatch(fetchCategories());
@@ -181,16 +209,44 @@ const POSInterface = () => {
     return Array.from(brandSet).sort((a, b) => a.localeCompare(b));
   }, [itemVariants]);
 
-  const handleAddToOrder = useCallback((itemVariant) => {
-    // Ensure the item has a valid selling_price before adding to order
-    const validItem = {
-      ...itemVariant,
-      // Make sure selling_price is a valid number
-      sellingPrice: parseFloat(itemVariant.selling_price)
-    };
+  const handleAddToOrder = useCallback(async (itemVariant) => {
+    try {
+      // Fetch fresh batch data for this item variant
+      const response = await fetch(`http://localhost:3001/api/item-variants/${itemVariant.id}`);
+      if (!response.ok) {
+        // Fallback: add directly with existing price
+        dispatch(addItemToOrder({
+          itemVariant: { ...itemVariant, sellingPrice: parseFloat(itemVariant.selling_price) },
+          quantity: 1,
+          globalDiscountSettings,
+        }));
+        return;
+      }
+      const freshData = await response.json();
+      const batches = freshData.available_batches || [];
 
-    dispatch(addItemToOrder({ itemVariant: validItem, quantity: 1, globalDiscountSettings }));
-  }, [dispatch, globalDiscountSettings]);
+      if (batches.length === 0) {
+        toast.error(`${itemVariant.item_name} is out of stock`);
+        return;
+      }
+
+      const uniquePrices = getUniquePrices(batches);
+
+      if (uniquePrices.length > 1) {
+        setBatchDialogData({ itemVariant: freshData, batches, barcode: null });
+        setBatchDialogOpen(true);
+      } else {
+        addItemWithPrice(freshData, parseFloat(batches[0].sell_price), null);
+      }
+    } catch (error) {
+      // Fallback on network error
+      dispatch(addItemToOrder({
+        itemVariant: { ...itemVariant, sellingPrice: parseFloat(itemVariant.selling_price) },
+        quantity: 1,
+        globalDiscountSettings,
+      }));
+    }
+  }, [addItemWithPrice, dispatch, globalDiscountSettings]);
 
   const getStockStatus = (stock) => {
     if (stock <= 0) return { label: 'Out of Stock', color: 'error' };
@@ -624,6 +680,16 @@ const POSInterface = () => {
         open={barcodeNotFoundOpen}
         barcode={failedBarcode}
         onClose={() => setBarcodeNotFoundOpen(false)}
+      />
+
+      {/* Batch / Price Selection Dialog */}
+      <BatchSelectionDialog
+        open={batchDialogOpen}
+        onClose={() => { setBatchDialogOpen(false); setBatchDialogData(null); }}
+        onConfirm={handleBatchConfirm}
+        itemName={batchDialogData?.itemVariant?.item_name || ''}
+        variantName={batchDialogData?.itemVariant?.variant_name || ''}
+        batches={batchDialogData?.batches || []}
       />
 
       {/* Order modals are handled elsewhere */}

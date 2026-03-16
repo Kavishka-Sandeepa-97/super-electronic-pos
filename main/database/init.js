@@ -156,6 +156,41 @@ const runMigrations = () => {
       console.log('Migration v1.6 completed successfully - stock_batch sell_price enabled');
     }
 
+    // Migration v1.7: Persist exact per-batch allocations for each order line
+    const addOrderBatchAllocationMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.7_add_order_batch_allocations');
+
+    if (!addOrderBatchAllocationMigration) {
+      console.log('Running migration v1.7: Creating item_variant_order_batch allocation table...');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS item_variant_order_batch (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          order_item_id INTEGER NOT NULL,
+          order_id INTEGER NOT NULL,
+          item_variant_id INTEGER NOT NULL,
+          stock_batch_id INTEGER NOT NULL,
+          qty INTEGER NOT NULL,
+          batch_buy_price DECIMAL(10,2) NOT NULL,
+          batch_sell_price DECIMAL(10,2) NOT NULL,
+          sold_unit_price DECIMAL(10,2) NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (order_item_id) REFERENCES item_variant_order(id),
+          FOREIGN KEY (order_id) REFERENCES orders(id),
+          FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+          FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
+        );
+      `);
+
+      const allocationTableInfo = db.pragma('table_info(item_variant_order_batch)');
+      const hasSoldUnitPrice = allocationTableInfo.some(column => column.name === 'sold_unit_price');
+
+      if (!hasSoldUnitPrice) {
+        db.exec('ALTER TABLE item_variant_order_batch ADD COLUMN sold_unit_price DECIMAL(10,2) NOT NULL DEFAULT 0;');
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.7_add_order_batch_allocations');
+      console.log('Migration v1.7 completed successfully - order batch allocations enabled');
+    }
+
     // Migration v1.2: Remove stock_batch_id column
     const removeStockBatchMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.2_remove_stock_batch_id');
     
@@ -343,6 +378,26 @@ const createTables = () => {
     )
   `);
 
+  // Item Variant Order Batch Allocation table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS item_variant_order_batch (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_item_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      item_variant_id INTEGER NOT NULL,
+      stock_batch_id INTEGER NOT NULL,
+      qty INTEGER NOT NULL,
+      batch_buy_price DECIMAL(10,2) NOT NULL,
+      batch_sell_price DECIMAL(10,2) NOT NULL,
+      sold_unit_price DECIMAL(10,2) NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_item_id) REFERENCES item_variant_order(id),
+      FOREIGN KEY (order_id) REFERENCES orders(id),
+      FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+      FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
+    )
+  `);
+
   // Sell Price History table
   db.exec(`
     CREATE TABLE IF NOT EXISTS sell_price_history (
@@ -418,6 +473,11 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_orders_staff ON orders(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_order ON item_variant_order(order_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_variant ON item_variant_order(item_variant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_iobo_order_item ON item_variant_order_batch(order_item_id)',
+    'CREATE INDEX IF NOT EXISTS idx_iobo_order ON item_variant_order_batch(order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_iobo_variant ON item_variant_order_batch(item_variant_id)',
+    'CREATE INDEX IF NOT EXISTS idx_iobo_batch ON item_variant_order_batch(stock_batch_id)',
+    'CREATE INDEX IF NOT EXISTS idx_iobo_order_variant ON item_variant_order_batch(order_id, item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_variant ON sell_price_history(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_created ON sell_price_history(created_at)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_staff ON cashier_shift(staff_id)',

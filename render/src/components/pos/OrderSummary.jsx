@@ -130,6 +130,7 @@ const OrderSummary = () => {
     discount_type: item.discountType || null,
     discount_value: item.discountValue || 0,
     discount_amount: item.discountAmount || 0,
+    preferred_batch_id: item.preferredBatchId || null,
   }));
 
   const handleQuantityChange = (itemVariantId, newQuantity) => {

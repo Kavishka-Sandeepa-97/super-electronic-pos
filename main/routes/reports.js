@@ -65,6 +65,51 @@ const getDateRange = (period, startDate, endDate) => {
   };
 };
 
+const completedSalesCte = `
+  WITH completed_sales AS (
+    SELECT
+      iob.item_variant_id,
+      iob.order_id,
+      iob.qty,
+      iob.sold_unit_price AS sold_unit_price,
+      iob.batch_buy_price AS buy_unit_price
+    FROM item_variant_order_batch iob
+    JOIN orders o ON iob.order_id = o.id
+    WHERE o.status = 'completed'
+      AND DATE(o.date) >= ?
+      AND DATE(o.date) <= ?
+
+    UNION ALL
+
+    SELECT
+      ivo.item_variant_id,
+      ivo.order_id,
+      ivo.qty,
+      ivo.unit_price AS sold_unit_price,
+      COALESCE(
+        (
+          SELECT CASE
+            WHEN SUM(sb.initial_qty) > 0 THEN SUM(sb.buy_price * sb.initial_qty) / SUM(sb.initial_qty)
+            ELSE AVG(sb.buy_price)
+          END
+          FROM stock_batch sb
+          WHERE sb.item_variant_id = ivo.item_variant_id
+        ),
+        0
+      ) AS buy_unit_price
+    FROM item_variant_order ivo
+    JOIN orders o ON ivo.order_id = o.id
+    WHERE o.status = 'completed'
+      AND DATE(o.date) >= ?
+      AND DATE(o.date) <= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM item_variant_order_batch iob2
+        WHERE iob2.order_item_id = ivo.id
+      )
+  )
+`;
+
 // POS Reports
 
 // Revenue report
@@ -121,25 +166,29 @@ router.get('/pos/top-products', (req, res) => {
 
   try {
     const rows = db.prepare(`
+      ${completedSalesCte}
       SELECT
         i.name as item_name,
         v.variant_name,
         iv.barcode,
-        SUM(ivo.qty) as total_quantity,
-        SUM(ivo.qty * ivo.unit_price) as total_revenue,
-        COUNT(DISTINCT ivo.order_id) as order_count
-      FROM item_variant_order ivo
-      JOIN item_variant iv ON ivo.item_variant_id = iv.id
+        SUM(cs.qty) as total_quantity,
+        ROUND(SUM(cs.qty * cs.sold_unit_price), 2) as total_revenue,
+        ROUND(SUM(cs.qty * cs.buy_unit_price), 2) as total_cogs,
+        ROUND(SUM(cs.qty * (cs.sold_unit_price - cs.buy_unit_price)), 2) as gross_profit,
+        CASE
+          WHEN SUM(cs.qty * cs.buy_unit_price) > 0
+          THEN ROUND((SUM(cs.qty * (cs.sold_unit_price - cs.buy_unit_price)) / SUM(cs.qty * cs.buy_unit_price)) * 100, 2)
+          ELSE 0
+        END as margin_percent,
+        COUNT(DISTINCT cs.order_id) as order_count
+      FROM completed_sales cs
+      JOIN item_variant iv ON cs.item_variant_id = iv.id
       JOIN item i ON iv.item_id = i.id
       JOIN variant v ON iv.variant_id = v.id
-      JOIN orders o ON ivo.order_id = o.id
-      WHERE o.status = 'completed'
-        AND DATE(o.date) >= ?
-        AND DATE(o.date) <= ?
       GROUP BY iv.id
       ORDER BY total_quantity DESC
       LIMIT ?
-    `).all(start, end, parseInt(limit));
+    `).all(start, end, start, end, parseInt(limit));
     
     res.json({ data: rows, dateRange: { start, end } });
   } catch (err) {
@@ -156,22 +205,26 @@ router.get('/pos/category-sales', (req, res) => {
 
   try {
     const rows = db.prepare(`
+      ${completedSalesCte}
       SELECT
         c.name as category_name,
-        COUNT(DISTINCT o.id) as order_count,
-        SUM(ivo.qty) as total_quantity,
-        SUM(ivo.qty * ivo.unit_price) as total_revenue
-      FROM orders o
-      JOIN item_variant_order ivo ON o.id = ivo.order_id
-      JOIN item_variant iv ON ivo.item_variant_id = iv.id
+        COUNT(DISTINCT cs.order_id) as order_count,
+        SUM(cs.qty) as total_quantity,
+        ROUND(SUM(cs.qty * cs.sold_unit_price), 2) as total_revenue,
+        ROUND(SUM(cs.qty * cs.buy_unit_price), 2) as total_cogs,
+        ROUND(SUM(cs.qty * (cs.sold_unit_price - cs.buy_unit_price)), 2) as gross_profit,
+        CASE
+          WHEN SUM(cs.qty * cs.buy_unit_price) > 0
+          THEN ROUND((SUM(cs.qty * (cs.sold_unit_price - cs.buy_unit_price)) / SUM(cs.qty * cs.buy_unit_price)) * 100, 2)
+          ELSE 0
+        END as margin_percent
+      FROM completed_sales cs
+      JOIN item_variant iv ON cs.item_variant_id = iv.id
       JOIN item i ON iv.item_id = i.id
       JOIN category c ON i.category_id = c.id
-      WHERE o.status = 'completed'
-        AND DATE(o.date) >= ?
-        AND DATE(o.date) <= ?
       GROUP BY c.id
       ORDER BY total_revenue DESC
-    `).all(start, end);
+    `).all(start, end, start, end);
     
     res.json({ data: rows, dateRange: { start, end } });
   } catch (err) {
