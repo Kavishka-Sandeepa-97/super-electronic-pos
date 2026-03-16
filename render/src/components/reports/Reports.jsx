@@ -23,14 +23,12 @@ import {
   Chip,
   IconButton,
   Tooltip,
-  TablePagination,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
   TrendingUp as TrendingUpIcon,
   ShoppingCart as ShoppingCartIcon,
   Category as CategoryIcon,
-  Search as SearchIcon,
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -67,9 +65,6 @@ const Reports = () => {
   const [productDetailsData, setProductDetailsData] = useState([]);
   const [inventoryValuation, setInventoryValuation] = useState({ data: [], summary: {} });
   const [searchTerm, setSearchTerm] = useState('');
-  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
-  const [inventoryPage, setInventoryPage] = useState(0);
-  const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(25);
   const [loading, setLoading] = useState(false);
 
   const fetchReportsData = async () => {
@@ -154,13 +149,6 @@ const Reports = () => {
             `"${row.category_name}",${row.order_count},${row.total_quantity},${row.total_revenue}`
           ).join('\n');
         filename = 'category_sales_report.csv';
-        break;
-      case 'inventory':
-        csvContent = 'Item,Variant,Brand,Category,Barcode,Stock,Avg Buy Price,Selling Price,Investment,Pot Revenue,Pot Profit,Profit %\n' +
-          inventoryValuation.data.map(row =>
-            `"${row.item_name}","${row.variant_name}","${row.brand_name || ''}","${row.category_name}","${row.barcode || ''}",${row.current_stock},${row.avg_buy_price || 0},${row.current_selling_price || 0},${row.total_cost_investment || 0},${row.potential_revenue || 0},${row.potential_profit || 0},${row.avg_buy_price > 0 ? (((row.current_selling_price - row.avg_buy_price) / row.avg_buy_price) * 100).toFixed(1) : 0}`
-          ).join('\n');
-        filename = 'inventory_valuation_report.csv';
         break;
     }
 
@@ -589,11 +577,6 @@ const Reports = () => {
                        `Stock purchased in the last ${period}`}
                     </Typography>
                   </Box>
-                  <Tooltip title="Download CSV">
-                    <IconButton onClick={() => handleDownloadReport('inventory')}>
-                      <DownloadIcon />
-                    </IconButton>
-                  </Tooltip>
                 </Box>
 
                 {/* Summary Cards */}
@@ -675,130 +658,6 @@ const Reports = () => {
                     </Card>
                   </Grid>
                 </Grid>
-
-                {/* Detailed Table */}
-                <TableContainer component={Paper}>
-                  {/* Search Bar */}
-                  <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <TextField
-                      size="small"
-                      placeholder="Search by item name, variant, category or barcode..."
-                      value={inventorySearchTerm}
-                      onChange={(e) => { setInventorySearchTerm(e.target.value); setInventoryPage(0); }}
-                      InputProps={{
-                        startAdornment: (
-                          <Box component="span" sx={{ mr: 1, color: 'text.secondary', display: 'flex' }}>
-                            <SearchIcon fontSize="small" />
-                          </Box>
-                        ),
-                      }}
-                      sx={{ width: { xs: '100%', sm: 400 } }}
-                    />
-                  </Box>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Item</TableCell>
-                        <TableCell>Category</TableCell>
-                        <TableCell>Barcode</TableCell>
-                        <TableCell align="right">Stock</TableCell>
-                        <TableCell align="right">Avg Buy Price</TableCell>
-                        <TableCell align="right">Selling Price</TableCell>
-                        <TableCell align="right">Investment</TableCell>
-                        <TableCell align="right">Pot. Revenue</TableCell>
-                        <TableCell align="right">Pot. Profit</TableCell>
-                        <TableCell align="right">Profit %</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {(() => {
-                        const filtered = (inventoryValuation.data || []).filter(item => {
-                          if (!inventorySearchTerm.trim()) return true;
-                          const q = inventorySearchTerm.toLowerCase();
-                          return (
-                            (item.item_name || '').toLowerCase().includes(q) ||
-                            (item.variant_name || '').toLowerCase().includes(q) ||
-                            (item.category_name || '').toLowerCase().includes(q) ||
-                            (item.brand_name || '').toLowerCase().includes(q) ||
-                            (item.barcode || '').toLowerCase().includes(q)
-                          );
-                        });
-                        const paginated = filtered.slice(
-                          inventoryPage * inventoryRowsPerPage,
-                          inventoryPage * inventoryRowsPerPage + inventoryRowsPerPage
-                        );
-                        return paginated.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <Box>
-                              <Typography variant="body2" fontWeight="bold">
-                                {item.item_name}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {item.variant_name}
-                                {item.brand_name && ` - ${item.brand_name}`}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>{item.category_name}</TableCell>
-                          <TableCell>
-                            <Chip label={item.barcode || 'No Barcode'} size="small" variant="outlined" />
-                          </TableCell>
-                          <TableCell align="right">{item.current_stock}</TableCell>
-                          <TableCell align="right">{formatCurrency(item.avg_buy_price || 0)}</TableCell>
-                          <TableCell align="right">{formatCurrency(item.current_selling_price || 0)}</TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="warning.main" fontWeight="bold">
-                              {formatCurrency(item.total_cost_investment || 0)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="success.main" fontWeight="bold">
-                              {formatCurrency(item.potential_revenue || 0)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography 
-                              variant="body2" 
-                              color={item.potential_profit > 0 ? 'success.main' : 'error.main'}
-                              fontWeight="bold"
-                            >
-                              {formatCurrency(item.potential_profit || 0)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Chip 
-                              label={`${item.avg_buy_price > 0 ? (((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100).toFixed(1) : 0}%`}
-                              color={item.avg_buy_price > 0 && ((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100 > 50 ? 'success' : item.avg_buy_price > 0 && ((item.current_selling_price - item.avg_buy_price) / item.avg_buy_price) * 100 > 20 ? 'warning' : 'error'}
-                              size="small"
-                            />
-                          </TableCell>
-                        </TableRow>
-                        ));
-                      })()}
-                    </TableBody>
-                  </Table>
-                  <TablePagination
-                    component="div"
-                    count={(() => {
-                      if (!inventorySearchTerm.trim()) return inventoryValuation.data?.length || 0;
-                      const q = inventorySearchTerm.toLowerCase();
-                      return (inventoryValuation.data || []).filter(item =>
-                        (item.item_name || '').toLowerCase().includes(q) ||
-                        (item.variant_name || '').toLowerCase().includes(q) ||
-                        (item.category_name || '').toLowerCase().includes(q) ||
-                        (item.brand_name || '').toLowerCase().includes(q) ||
-                        (item.barcode || '').toLowerCase().includes(q)
-                      ).length;
-                    })()}
-                    page={inventoryPage}
-                    onPageChange={(_, newPage) => setInventoryPage(newPage)}
-                    rowsPerPage={inventoryRowsPerPage}
-                    onRowsPerPageChange={(e) => { setInventoryRowsPerPage(parseInt(e.target.value, 10)); setInventoryPage(0); }}
-                    rowsPerPageOptions={[10, 25, 50, 100]}
-                    labelRowsPerPage="Per page:"
-                  />
-                </TableContainer>
               </Box>
             )}
           </CardContent>

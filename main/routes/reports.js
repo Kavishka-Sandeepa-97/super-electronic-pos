@@ -435,21 +435,35 @@ router.get('/stock/valuation', (req, res) => {
       ORDER BY iv.created_at DESC
     `).all(...params);
 
-    // Calculate summary totals
+    // Summary cards are calculated directly from batches (remaining_qty weighted),
+    // so total investment strictly follows batch-wise cost.
+    const summaryRow = db.prepare(`
+      SELECT
+        COUNT(DISTINCT iv.id) as total_items,
+        COALESCE(SUM(sb.remaining_qty), 0) as total_stock_units,
+        ROUND(COALESCE(SUM(sb.buy_price * sb.remaining_qty), 0), 2) as total_investment,
+        ROUND(COALESCE(SUM(COALESCE(sb.sell_price, 0) * sb.remaining_qty), 0), 2) as total_potential_revenue,
+        ROUND(COALESCE(SUM((COALESCE(sb.sell_price, 0) - sb.buy_price) * sb.remaining_qty), 0), 2) as total_potential_profit
+      FROM item_variant iv
+      LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id ${stockBatchFilter}
+      WHERE COALESCE(sb.remaining_qty, 0) > 0
+    `).get(...params);
+
+    const toAmount = (value) => Number(Number(value || 0).toFixed(2));
+
     const summary = {
-      total_items: rows.length,
-      total_stock_units: rows.reduce((sum, row) => sum + row.current_stock, 0),
-      total_investment: rows.reduce((sum, row) => sum + row.total_cost_investment, 0),
-      total_potential_revenue: rows.reduce((sum, row) => sum + row.potential_revenue, 0),
-      total_potential_profit: rows.reduce((sum, row) => sum + row.potential_profit, 0),
-      overall_profit_margin: 0
+      total_items: Number(summaryRow?.total_items || 0),
+      total_stock_units: Number(summaryRow?.total_stock_units || 0),
+      total_investment: toAmount(summaryRow?.total_investment),
+      total_potential_revenue: toAmount(summaryRow?.total_potential_revenue),
+      total_potential_profit: toAmount(summaryRow?.total_potential_profit),
+      overall_profit_margin: 0,
     };
 
-    // Calculate overall profit margin
     if (summary.total_investment > 0) {
-      summary.overall_profit_margin = Math.round(
-        (summary.total_potential_profit / summary.total_investment) * 100 * 100
-      ) / 100;
+      summary.overall_profit_margin = Number(
+        ((summary.total_potential_profit / summary.total_investment) * 100).toFixed(2)
+      );
     }
 
     res.json({ 
