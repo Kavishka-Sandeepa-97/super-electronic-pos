@@ -24,7 +24,6 @@ import {
   TableHead,
   TableRow,
   Paper,
-  InputAdornment,
   List,
   ListItem,
   ListItemText,
@@ -57,7 +56,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { fetchCategories, fetchVariants, fetchItemVariants } from '../../store/slices/inventorySlice';
 import api from '../../services/api';
-import SellPriceHistory from '../SellPriceHistory';
 import CategoryManagementMenu from './CategoryManagementMenu';
 import BrandManagementMenu from './BrandManagementMenu';
 import htmlPrintService from '../../services/htmlPrintService';
@@ -83,7 +81,6 @@ const Inventory = () => {
   const [newItem, setNewItem] = useState({ name: '', category: '', variant: '', image: null, imagePreview: null });
   const [savingItem, setSavingItem] = useState(false);
   const [fieldTouched, setFieldTouched] = useState({ name: false, category: false, variant: false });
-  const [barcodeInput, setBarcodeInput] = useState('');
 
   // Variant management
   const [variantDialog, setVariantDialog] = useState(false);
@@ -96,7 +93,7 @@ const Inventory = () => {
   // Stock
   const [addStockDialog, setAddStockDialog] = useState(false);
   const [selectedItemForStock, setSelectedItemForStock] = useState(null);
-  const [newStockData, setNewStockData] = useState({ buyingPrice: '', quantity: '', description: '', expiryDate: '' });
+  const [newStockData, setNewStockData] = useState({ buyingPrice: '', sellingPrice: '', quantity: '', description: '', expiryDate: '' });
 
   const [stockBatchDialog, setStockBatchDialog] = useState(false);
   const [selectedItemForStockBatch, setSelectedItemForStockBatch] = useState(null);
@@ -108,12 +105,8 @@ const Inventory = () => {
 
   const [editStockBatchDialog, setEditStockBatchDialog] = useState(false);
   const [editingStockBatch, setEditingStockBatch] = useState(null);
-  const [editStockBatchData, setEditStockBatchData] = useState({ initial_qty: '', remaining_qty: '', buy_price: '', expire_date: '', description: '' });
+  const [editStockBatchData, setEditStockBatchData] = useState({ initial_qty: '', remaining_qty: '', buy_price: '', sell_price: '', expire_date: '', description: '' });
   const [savingStockBatch, setSavingStockBatch] = useState(false);
-
-  // Price history
-  const [priceHistoryDialog, setPriceHistoryDialog] = useState(false);
-  const [selectedItemForHistory, setSelectedItemForHistory] = useState(null);
 
   // Low / Out of stock dialogs
   const [lowStockDialog, setLowStockDialog] = useState(false);
@@ -225,8 +218,8 @@ const Inventory = () => {
     if (!formData.item_id || !formData.variant_id) { toast.error('Please select both item and variant'); return; }
     if (!formData.buyingPrice || !formData.quantity || !formData.sellingPrice) { toast.error('Please fill in buying price, selling price, and quantity'); return; }
     try {
-      const itemVariantResponse = await api.itemVariants.create({ item_id: formData.item_id, variant_id: formData.variant_id, barcode: formData.barcode || null, selling_price: parseFloat(formData.sellingPrice), staff_id: user?.id, is_discount_active: formData.isDiscountActive || false, discount_type: formData.discountType || 'percentage', discount_value: parseFloat(formData.discountValue) || 0 });
-      await api.stock.addBatch({ item_variant_id: itemVariantResponse.id, buyingPrice: parseFloat(formData.buyingPrice), quantity: parseInt(formData.quantity), description: formData.description || null, expire_date: formData.expireDate || null });
+      const itemVariantResponse = await api.itemVariants.create({ item_id: formData.item_id, variant_id: formData.variant_id, barcode: formData.barcode || null, staff_id: user?.id, is_discount_active: formData.isDiscountActive || false, discount_type: formData.discountType || 'percentage', discount_value: parseFloat(formData.discountValue) || 0 });
+      await api.stock.addBatch({ item_variant_id: itemVariantResponse.id, buyingPrice: parseFloat(formData.buyingPrice), sellingPrice: parseFloat(formData.sellingPrice), quantity: parseInt(formData.quantity), description: formData.description || null, expire_date: formData.expireDate || null });
       toast.success('Product added successfully with stock!');
       dispatch(fetchItemVariants());
       setAddItemVariantDialog(false);
@@ -240,14 +233,14 @@ const Inventory = () => {
   const handleAddStockClick = (item) => {
     if (!item.id) { toast.warning('Please add a variant to this item first.'); return; }
     setSelectedItemForStock(item);
-    setNewStockData({ buyingPrice: '', quantity: '', description: '', expiryDate: '' });
+    setNewStockData({ buyingPrice: '', sellingPrice: (item.selling_price || 0).toString(), quantity: '', description: '', expiryDate: '' });
     setAddStockDialog(true);
   };
 
   const handleSaveNewStock = async () => {
-    if (!newStockData.quantity || !newStockData.buyingPrice) { toast.error('Quantity and buying price are required'); return; }
+    if (!newStockData.quantity || !newStockData.buyingPrice || !newStockData.sellingPrice) { toast.error('Quantity, buying price, and selling price are required'); return; }
     try {
-      await api.stock.addBatch({ item_variant_id: selectedItemForStock.id, quantity: parseInt(newStockData.quantity), buyingPrice: parseFloat(newStockData.buyingPrice), description: newStockData.description || '', expire_date: newStockData.expiryDate || null });
+      await api.stock.addBatch({ item_variant_id: selectedItemForStock.id, quantity: parseInt(newStockData.quantity), buyingPrice: parseFloat(newStockData.buyingPrice), sellingPrice: parseFloat(newStockData.sellingPrice), description: newStockData.description || '', expire_date: newStockData.expiryDate || null });
       toast.success('Stock batch added successfully');
       dispatch(fetchItemVariants());
       setAddStockDialog(false);
@@ -271,7 +264,7 @@ const Inventory = () => {
   const handleEditStockBatch = (stockBatch) => {
     if (user?.role !== 'admin') { toast.error('Only administrators can edit stock batches'); return; }
     setEditingStockBatch(stockBatch);
-    setEditStockBatchData({ initial_qty: stockBatch.initial_qty || stockBatch.quantity || '', remaining_qty: stockBatch.remaining_qty !== undefined ? stockBatch.remaining_qty : '', buy_price: stockBatch.buy_price || '', expire_date: stockBatch.expire_date ? stockBatch.expire_date.split('T')[0] : '', description: stockBatch.description || '' });
+    setEditStockBatchData({ initial_qty: stockBatch.initial_qty || stockBatch.quantity || '', remaining_qty: stockBatch.remaining_qty !== undefined ? stockBatch.remaining_qty : '', buy_price: stockBatch.buy_price || '', sell_price: stockBatch.sell_price || stockBatch.price || '', expire_date: stockBatch.expire_date ? stockBatch.expire_date.split('T')[0] : '', description: stockBatch.description || '' });
     setEditStockBatchDialog(true);
   };
 
@@ -279,16 +272,19 @@ const Inventory = () => {
     const initialQty = parseFloat(editStockBatchData.initial_qty);
     const remainingQty = parseFloat(editStockBatchData.remaining_qty);
     const buyPrice = editStockBatchData.buy_price ? parseFloat(editStockBatchData.buy_price) : undefined;
+    const sellPrice = editStockBatchData.sell_price ? parseFloat(editStockBatchData.sell_price) : undefined;
     if (!editStockBatchData.initial_qty || editStockBatchData.remaining_qty === '') { toast.error('Both quantities are required'); return; }
     if (isNaN(initialQty) || isNaN(remainingQty)) { toast.error('Please enter valid numbers for quantities'); return; }
     if (initialQty <= 0) { toast.error('Initial quantity must be greater than 0'); return; }
     if (remainingQty < 0) { toast.error('Remaining quantity cannot be negative'); return; }
     if (remainingQty > initialQty) { toast.error('Remaining quantity cannot be greater than initial quantity'); return; }
     if (buyPrice !== undefined && (isNaN(buyPrice) || buyPrice < 0)) { toast.error('Please enter a valid buying price'); return; }
+    if (sellPrice !== undefined && (isNaN(sellPrice) || sellPrice < 0)) { toast.error('Please enter a valid selling price'); return; }
     setSavingStockBatch(true);
     try {
       const updateData = { initial_qty: initialQty, remaining_qty: remainingQty };
       if (buyPrice !== undefined) updateData.buy_price = buyPrice;
+      if (sellPrice !== undefined) updateData.sell_price = sellPrice;
       if (editStockBatchData.expire_date) updateData.expire_date = editStockBatchData.expire_date;
       if (editStockBatchData.description) updateData.description = editStockBatchData.description;
       await api.stock.updateBatch(editingStockBatch.id, updateData);
@@ -304,8 +300,7 @@ const Inventory = () => {
 
   const handleEditItem = async (item) => {
     setSelectedItem(item);
-    setNewItem({ name: item.item_name || item.name || '', category: item.category_name || item.category || '', variant: item.variant_name || item.variant || '', image: null, imagePreview: null, barcode: item.barcode || '', sellingPrice: (item.selling_price || item.price || '').toString(), buyingPrice: (item.buying_price || '').toString(), initialQuantity: (item.total_stock || item.stock || '').toString(), description: item.description || '', isDiscountActive: !!item.is_discount_active, discountType: item.discount_type || 'percentage', discountValue: (item.discount_value || '').toString() });
-    setBarcodeInput(item.barcode || '');
+    setNewItem({ name: item.item_name || item.name || '', category: item.category_name || item.category || '', variant: item.variant_name || item.variant || '', image: null, imagePreview: null, barcode: item.barcode || '', buyingPrice: (item.buying_price || '').toString(), initialQuantity: (item.total_stock || item.stock || '').toString(), description: item.description || '', isDiscountActive: !!item.is_discount_active, discountType: item.discount_type || 'percentage', discountValue: (item.discount_value || '').toString() });
     setEditItemDialog(true);
     // Fetch image lazily (not included in bulk list to keep payload small)
     try {
@@ -343,7 +338,6 @@ const Inventory = () => {
       formData.append('category', newItem.category);
       formData.append('variant', newItem.variant);
       formData.append('barcode', newItem.barcode || '');
-      formData.append('sellingPrice', newItem.sellingPrice || '');
       formData.append('buyingPrice', newItem.buyingPrice || '');
       formData.append('initialQuantity', newItem.initialQuantity || '');
       formData.append('description', newItem.description || '');
@@ -367,9 +361,14 @@ const Inventory = () => {
     }
   };
 
-  const handleOpenBarcodePrint = (item) => {
-    if (!item.barcode) { toast.warning('This item does not have a barcode'); return; }
-    setSelectedItemForBarcode(item);
+  const handleOpenBarcodePrint = (item, stockBatch = null) => {
+    if (!item?.barcode) { toast.warning('This item does not have a barcode'); return; }
+    const selectedForPrint = {
+      ...item,
+      selling_price: stockBatch?.sell_price ?? stockBatch?.price ?? item.selling_price ?? item.price ?? 0,
+      batch_reference: stockBatch?.id || null,
+    };
+    setSelectedItemForBarcode(selectedForPrint);
     setBarcodePrintQuantity(1);
     setBarcodePrintDialog(true);
   };
@@ -381,14 +380,6 @@ const Inventory = () => {
       if (result.success) { toast.success(result.message); setBarcodePrintDialog(false); }
       else toast.error(result.message || 'Failed to print barcode labels');
     } catch (e) { toast.error(`Print error: ${e.message}`); }
-  };
-
-  // ── Inventory Overview / Alert helpers ────────────────────────────────────
-  const getStockStatus = (item) => {
-    const s = item.total_stock || item.stock || 0;
-    if (s === 0) return { label: 'Out of Stock', color: 'error' };
-    if (s <= (item.minStock || 5)) return { label: 'Low Stock', color: 'warning' };
-    return { label: 'In Stock', color: 'success' };
   };
 
   const InventoryOverview = () => (
@@ -478,7 +469,6 @@ const Inventory = () => {
             onAddStock={handleAddStockClick}
             onViewStockBatch={handleViewStockBatch}
             onPrintBarcode={handleOpenBarcodePrint}
-            onPriceHistory={(item) => { setSelectedItemForHistory(item); setPriceHistoryDialog(true); }}
             onDeleteItem={handleDeleteItem}
           />
         </>
@@ -550,6 +540,7 @@ const Inventory = () => {
         dateFilters={dateFilters}
         setDateFilters={setDateFilters}
         onEditStockBatch={handleEditStockBatch}
+        onPrintStockBatchBarcode={(batch) => handleOpenBarcodePrint(selectedItemForStockBatch, batch)}
       />
 
       {/* Edit Stock Batch */}
@@ -620,9 +611,6 @@ const Inventory = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth label="Selling Price" type="number" value={newItem.sellingPrice || ''} onChange={(e) => setNewItem({ ...newItem, sellingPrice: e.target.value })} InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }} />
-            </Grid>
 
             {/* Discount Settings */}
             <Grid item xs={12}>
@@ -668,16 +656,11 @@ const Inventory = () => {
                 inputProps={{ min: 0, step: 0.01 }}
               />
             </Grid>
-            {newItem.isDiscountActive && newItem.sellingPrice && newItem.discountValue ? (
-              <Grid item xs={12}>
-                <Alert severity="info">
-                  Final Price: Rs. {newItem.discountType === 'percentage'
-                    ? (parseFloat(newItem.sellingPrice) - (parseFloat(newItem.sellingPrice) * parseFloat(newItem.discountValue) / 100)).toFixed(2)
-                    : (parseFloat(newItem.sellingPrice) - parseFloat(newItem.discountValue)).toFixed(2)
-                  }
-                </Alert>
-              </Grid>
-            ) : null}
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Selling price is now handled per stock batch. Use "View Stock Details" to update batch selling prices.
+              </Alert>
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -716,17 +699,6 @@ const Inventory = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Price History Dialog */}
-      <Dialog open={priceHistoryDialog} onClose={() => setPriceHistoryDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Price History - {selectedItemForHistory?.item_name || selectedItemForHistory?.name} ({selectedItemForHistory?.variant_name || selectedItemForHistory?.variant})</DialogTitle>
-        <DialogContent>
-          {selectedItemForHistory && (
-            <SellPriceHistory itemVariantId={selectedItemForHistory.id} currentPrice={selectedItemForHistory.selling_price || selectedItemForHistory.price} onPriceUpdate={() => dispatch(fetchItemVariants())} />
-          )}
-        </DialogContent>
-        <DialogActions><Button onClick={() => setPriceHistoryDialog(false)}>Close</Button></DialogActions>
-      </Dialog>
-
       {/* Low Stock Dialog */}
       <Dialog open={lowStockDialog} onClose={() => setLowStockDialog(false)} maxWidth="lg" fullWidth>
         <DialogTitle>
@@ -740,7 +712,7 @@ const Inventory = () => {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Item</TableCell><TableCell>Variant</TableCell><TableCell>Category</TableCell><TableCell>Barcode</TableCell><TableCell align="right">Current Stock</TableCell><TableCell align="right">Selling Price</TableCell>
+                    <TableCell>Item</TableCell><TableCell>Variant</TableCell><TableCell>Category</TableCell><TableCell>Barcode</TableCell><TableCell align="right">Current Stock</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -751,7 +723,6 @@ const Inventory = () => {
                       <TableCell>{item.category_name || item.category}</TableCell>
                       <TableCell>{item.barcode || '-'}</TableCell>
                       <TableCell align="right"><Chip label={item.total_stock || item.stock || 0} color="warning" size="small" /></TableCell>
-                      <TableCell align="right">Rs. {parseFloat(item.selling_price || item.price || 0).toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -775,7 +746,7 @@ const Inventory = () => {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Item</TableCell><TableCell>Variant</TableCell><TableCell>Category</TableCell><TableCell>Barcode</TableCell><TableCell align="right">Current Stock</TableCell><TableCell align="right">Selling Price</TableCell>
+                    <TableCell>Item</TableCell><TableCell>Variant</TableCell><TableCell>Category</TableCell><TableCell>Barcode</TableCell><TableCell align="right">Current Stock</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -786,7 +757,6 @@ const Inventory = () => {
                       <TableCell>{item.category_name || item.category}</TableCell>
                       <TableCell>{item.barcode || '-'}</TableCell>
                       <TableCell align="right"><Chip label="0" color="error" size="small" /></TableCell>
-                      <TableCell align="right">Rs. {parseFloat(item.selling_price || item.price || 0).toFixed(2)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -132,15 +132,19 @@ server.post('/api/item-variants/create-full', upload.single('image'), (req, res)
       throw err;
     }
 
-    // 5. Insert into stock_batch with description and expire_date
+    // 5. Insert into stock_batch with batch-wise sell price
     const stockResult = db.prepare(
-      'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(item_variant_id, parseInt(initialQuantity), parseInt(initialQuantity), parseFloat(buyingPrice || 0), description || null, expiryDate || null, getCurrentUTCTimestamp());
-
-    // 6. Insert into sell_price_history
-    db.prepare(
-      'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)'
-    ).run(item_variant_id, 1, parseFloat(sellingPrice), getCurrentUTCTimestamp());
+      'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, sell_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      item_variant_id,
+      parseInt(initialQuantity),
+      parseInt(initialQuantity),
+      parseFloat(buyingPrice || 0),
+      parseFloat(sellingPrice || 0),
+      description || null,
+      expiryDate || null,
+      getCurrentUTCTimestamp()
+    );
 
     return item_variant_id;
   });
@@ -215,15 +219,19 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
         throw err;
       }
 
-      // Insert into stock_batch
+      // Insert into stock_batch with batch-wise sell price
       const stockResult = db.prepare(
-        'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(item_variant_id, parseInt(initialQuantity || 0), parseInt(initialQuantity || 0), parseFloat(buyingPrice || 0), description || null, expiryDate || null, getCurrentUTCTimestamp());
-
-      // Insert into sell_price_history
-      db.prepare(
-        'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)'
-      ).run(item_variant_id, 1, parseFloat(sellingPrice), getCurrentUTCTimestamp());
+        'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, sell_price, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        item_variant_id,
+        parseInt(initialQuantity || 0),
+        parseInt(initialQuantity || 0),
+        parseFloat(buyingPrice || 0),
+        parseFloat(sellingPrice || 0),
+        description || null,
+        expiryDate || null,
+        getCurrentUTCTimestamp()
+      );
 
       createdVariants.push({
         item_variant_id,
@@ -253,17 +261,26 @@ server.post('/api/items/create-with-variants', upload.single('image'), (req, res
 // Add stock batch to existing item variant
 server.post('/api/stock-batch/add', (req, res) => {
   const db = getDatabase();
-  const { item_variant_id, buyingPrice, quantity, description, expire_date } = req.body;
+  const { item_variant_id, buyingPrice, sellingPrice, quantity, description, expire_date } = req.body;
 
-  if (!item_variant_id || !quantity || !buyingPrice) {
-    return res.status(400).json({ error: 'Missing required fields: item_variant_id, quantity, buyingPrice' });
+  if (!item_variant_id || !quantity || !buyingPrice || sellingPrice === undefined || sellingPrice === null || sellingPrice === '') {
+    return res.status(400).json({ error: 'Missing required fields: item_variant_id, quantity, buyingPrice, sellingPrice' });
   }
 
   const transaction = db.transaction(() => {
     // Create new stock batch
     const result = db.prepare(
-      'INSERT INTO stock_batch (item_variant_id, buy_price, initial_qty, remaining_qty, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(item_variant_id, parseFloat(buyingPrice), parseInt(quantity), parseInt(quantity), description || null, expire_date || null, getCurrentUTCTimestamp());
+      'INSERT INTO stock_batch (item_variant_id, buy_price, sell_price, initial_qty, remaining_qty, description, expire_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      item_variant_id,
+      parseFloat(buyingPrice),
+      parseFloat(sellingPrice),
+      parseInt(quantity),
+      parseInt(quantity),
+      description || null,
+      expire_date || null,
+      getCurrentUTCTimestamp()
+    );
     return result.lastInsertRowid;
   });
 
@@ -304,7 +321,7 @@ server.get('/api/stock/batches/:itemVariantId', (req, res) => {
 server.put('/api/stock/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { initial_qty, remaining_qty, buy_price, expire_date, description } = req.body;
+  const { initial_qty, remaining_qty, buy_price, sell_price, expire_date, description } = req.body;
 
   try {
     // Build dynamic update query based on provided fields
@@ -322,6 +339,10 @@ server.put('/api/stock/:id', (req, res) => {
     if (buy_price !== undefined) {
       updates.push('buy_price = ?');
       values.push(parseFloat(buy_price));
+    }
+    if (sell_price !== undefined) {
+      updates.push('sell_price = ?');
+      values.push(parseFloat(sell_price));
     }
     if (expire_date !== undefined) {
       updates.push('expire_date = ?');
@@ -381,7 +402,7 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
       SELECT 
         'IN' as type,
         sb.initial_qty as quantity,
-        sb.buy_price as price,
+        sb.sell_price as price,
         sb.created_at,
         sb.id as reference_id,
         COALESCE(sb.description, 'Stock Added') as description,
@@ -407,8 +428,8 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, r
   const { name, category, variant, barcode, sellingPrice, buyingPrice, initialQuantity, description, isDiscountActive, discountType, discountValue } = req.body;
   const imagePath = req.file ? req.file.path : null;
 
-  if (!name || !category || !variant || !sellingPrice) {
-    return res.status(400).json({ error: 'Missing required fields: name, category, variant, sellingPrice' });
+  if (!name || !category || !variant) {
+    return res.status(400).json({ error: 'Missing required fields: name, category, variant' });
   }
 
   const transaction = db.transaction(() => {
@@ -465,19 +486,20 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, r
       throw err;
     }
 
-    // 6. Get current selling price
-    const currentPriceRow = db.prepare(
-      'SELECT selling_price FROM sell_price_history WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(id);
-    const currentPrice = currentPriceRow ? currentPriceRow.selling_price : null;
-
-    let latest_stock_batch_id = null;
-
-    // 7. Update stock if initialQuantity is provided and different
+    // 6. Update stock if initialQuantity is provided and different
     if (initialQuantity && buyingPrice !== undefined) {
       const existingStock = db.prepare(
         'SELECT SUM(remaining_qty) as total FROM stock_batch WHERE item_variant_id = ?'
       ).get(id);
+
+      const latestBatch = db.prepare(
+        'SELECT sell_price FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC, id DESC LIMIT 1'
+      ).get(id);
+
+      const resolvedSellPrice =
+        sellingPrice !== undefined && sellingPrice !== null && sellingPrice !== ''
+          ? parseFloat(sellingPrice)
+          : parseFloat(latestBatch?.sell_price || 0);
       
       const newQuantity = parseInt(initialQuantity);
       const currentTotal = existingStock?.total || 0;
@@ -486,23 +508,18 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, r
         const difference = newQuantity - currentTotal;
         if (difference > 0) {
           const stockResult = db.prepare(
-            'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-          ).run(id, difference, difference, parseFloat(buyingPrice || 0), description || null, getCurrentUTCTimestamp());
-          latest_stock_batch_id = stockResult.lastInsertRowid;
+            'INSERT INTO stock_batch (item_variant_id, initial_qty, remaining_qty, buy_price, sell_price, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).run(
+            id,
+            difference,
+            difference,
+            parseFloat(buyingPrice || 0),
+            resolvedSellPrice,
+            description || null,
+            getCurrentUTCTimestamp()
+          );
         }
-      } else {
-        const latestBatch = db.prepare(
-          'SELECT id FROM stock_batch WHERE item_variant_id = ? ORDER BY created_at DESC LIMIT 1'
-        ).get(id);
-        latest_stock_batch_id = latestBatch ? latestBatch.id : null;
       }
-    }
-
-    // 8. Create price history entry if price changed
-    if (!currentPrice || parseFloat(currentPrice) !== parseFloat(sellingPrice)) {
-      db.prepare(
-        'INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)'
-      ).run(id, 1, parseFloat(sellingPrice), getCurrentUTCTimestamp());
     }
 
     return id;
@@ -521,53 +538,18 @@ server.put('/api/item-variants/:id/update-full', upload.single('image'), (req, r
   }
 });
 
-// Get sell price history for an item variant
+// Sell price history endpoint deprecated (pricing is batch-wise in stock_batch)
 server.get('/api/sell-price-history/:variantId', (req, res) => {
-  const db = getDatabase();
-  const { variantId } = req.params;
-
-  try {
-    const rows = db.prepare(`
-      SELECT 
-        id,
-        selling_price,
-        created_at,
-        staff_id
-      FROM sell_price_history
-      WHERE item_variant_id = ?
-      ORDER BY created_at DESC
-    `).all(variantId);
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching sell price history:', err);
-    res.status(500).json({ error: 'Failed to fetch sell price history' });
-  }
+  res.status(410).json({
+    error: 'sell_price_history is deprecated. Use stock batch endpoints for pricing.'
+  });
 });
 
-// Update sell price (creates new history entry)
+// Update sell price endpoint deprecated (pricing is batch-wise in stock_batch)
 server.post('/api/update-sell-price', (req, res) => {
-  const db = getDatabase();
-  const { item_variant_id, selling_price, staff_id = 1 } = req.body;
-
-  if (!item_variant_id || !selling_price) {
-    return res.status(400).json({ error: 'item_variant_id and selling_price are required' });
-  }
-
-  try {
-    // Insert new price history entry
-    const result = db.prepare(`
-      INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) 
-      VALUES (?, ?, ?, ?)
-    `).run(item_variant_id, staff_id, parseFloat(selling_price), getCurrentUTCTimestamp());
-
-    res.json({
-      message: 'Sell price updated successfully',
-      historyId: result.lastInsertRowid
-    });
-  } catch (err) {
-    console.error('Error updating sell price:', err);
-    res.status(500).json({ error: 'Failed to update sell price' });
-  }
+  res.status(410).json({
+    error: 'update-sell-price is deprecated. Update stock batch sell_price instead.'
+  });
 });
 
 // Health check

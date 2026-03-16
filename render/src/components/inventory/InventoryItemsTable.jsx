@@ -25,7 +25,6 @@ import {
   Add as AddIcon,
   ListAlt as ListAltIcon,
   Print as PrintIcon,
-  History as HistoryIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
@@ -44,7 +43,6 @@ const InventoryItemsTable = ({
   onAddStock,
   onViewStockBatch,
   onPrintBarcode,
-  onPriceHistory,
   onDeleteItem,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,8 +125,6 @@ const InventoryItemsTable = ({
                 <TableCell>Item Name</TableCell>
                 <TableCell>Variant</TableCell>
                 <TableCell>Category</TableCell>
-                <TableCell>Price</TableCell>
-                <TableCell>Stock</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Barcode</TableCell>
                 <TableCell>Date Added</TableCell>
@@ -138,7 +134,7 @@ const InventoryItemsTable = ({
             <TableBody>
               {paginatedItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={7} align="center">
                     <Typography variant="body2" color="text.secondary" py={2}>
                       {searchTerm ? 'No items match your search' : 'No items available'}
                     </Typography>
@@ -154,8 +150,6 @@ const InventoryItemsTable = ({
                       <TableCell>
                         <Chip label={item.category_name || item.category || '-'} size="small" />
                       </TableCell>
-                      <TableCell>Rs. {(item.selling_price || item.price || 0).toFixed(2)}</TableCell>
-                      <TableCell>{item.total_stock || item.stock || 0}</TableCell>
                       <TableCell>
                         <Chip label={status.label} color={status.color} size="small" />
                       </TableCell>
@@ -192,11 +186,6 @@ const InventoryItemsTable = ({
                               <PrintIcon fontSize="small" />
                             </IconButton>
                           </span>
-                        </Tooltip>
-                        <Tooltip title="Price History">
-                          <IconButton size="small" color="primary" onClick={() => onPriceHistory(item)}>
-                            <HistoryIcon fontSize="small" />
-                          </IconButton>
                         </Tooltip>
                         <Tooltip title="Delete Item">
                           <IconButton size="small" color="error" onClick={() => onDeleteItem(item.id)}>

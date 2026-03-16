@@ -22,7 +22,10 @@ import {
   InputAdornment,
   FormControlLabel,
   Radio,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
+import { Print as PrintIcon } from '@mui/icons-material';
 
 // ─── Add Stock Dialog ───────────────────────────────────────────────────────
 export const AddStockDialog = ({ open, onClose, selectedItem, newStockData, setNewStockData, onSave }) => (
@@ -40,6 +43,17 @@ export const AddStockDialog = ({ open, onClose, selectedItem, newStockData, setN
             type="number"
             value={newStockData.buyingPrice}
             onChange={(e) => setNewStockData({ ...newStockData, buyingPrice: e.target.value })}
+            required
+            InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6}>
+          <TextField
+            fullWidth
+            label="Selling Price"
+            type="number"
+            value={newStockData.sellingPrice}
+            onChange={(e) => setNewStockData({ ...newStockData, sellingPrice: e.target.value })}
             required
             InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
           />
@@ -96,6 +110,7 @@ export const StockBatchDialog = ({
   dateFilters,
   setDateFilters,
   onEditStockBatch,
+  onPrintStockBatchBarcode,
 }) => (
   <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
     <DialogTitle>
@@ -167,6 +182,7 @@ export const StockBatchDialog = ({
                 <TableRow>
                   <TableCell>Date</TableCell>
                   <TableCell>Type</TableCell>
+                  <TableCell>Price</TableCell>
                   {stockFilters.type === 'sale' && (
                     <>
                       <TableCell>Quantity Sold</TableCell>
@@ -179,6 +195,7 @@ export const StockBatchDialog = ({
                       <TableCell>Initial Qty</TableCell>
                       <TableCell>Remaining Qty</TableCell>
                       <TableCell>Expiry Date</TableCell>
+                      <TableCell>Actions</TableCell>
                     </>
                   )}
                 </TableRow>
@@ -186,7 +203,7 @@ export const StockBatchDialog = ({
               <TableBody>
                 {filteredStockData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={stockFilters.type === 'stockIn' ? 7 : 6} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No movements match the selected filters
                       </Typography>
@@ -216,6 +233,11 @@ export const StockBatchDialog = ({
                           size="small"
                         />
                       </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight="bold" color={stockFilters.type === 'stockIn' ? 'primary.main' : 'inherit'}>
+                          Rs. {parseFloat(movement.sell_price ?? movement.price ?? 0).toFixed(2)}
+                        </Typography>
+                      </TableCell>
                       {stockFilters.type === 'sale' && (
                         <>
                           <TableCell>
@@ -239,6 +261,22 @@ export const StockBatchDialog = ({
                           </TableCell>
                           <TableCell>
                             {movement.expire_date ? new Date(movement.expire_date).toLocaleDateString() : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="Print barcode label using this batch selling price">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onPrintStockBatchBarcode?.(movement);
+                                  }}
+                                >
+                                  <PrintIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                           </TableCell>
                         </>
                       )}
@@ -314,6 +352,17 @@ export const EditStockBatchDialog = ({
               type="number"
               value={editStockBatchData.buy_price}
               onChange={(e) => setEditStockBatchData({ ...editStockBatchData, buy_price: e.target.value })}
+              inputProps={{ min: 0, step: 0.01 }}
+              InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Selling Price"
+              type="number"
+              value={editStockBatchData.sell_price}
+              onChange={(e) => setEditStockBatchData({ ...editStockBatchData, sell_price: e.target.value })}
               inputProps={{ min: 0, step: 0.01 }}
               InputProps={{ startAdornment: <InputAdornment position="start">Rs.</InputAdornment> }}
             />

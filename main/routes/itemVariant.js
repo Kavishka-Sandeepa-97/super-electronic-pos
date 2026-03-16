@@ -14,7 +14,7 @@ router.get('/', (req, res) => {
              b.discount_type as brand_discount_type,
              b.discount_value as brand_discount_value,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-             sph.selling_price,
+             COALESCE(sbp.sell_price, 0) as selling_price,
              i.id as item_id_ref,
              COALESCE(iv.created_at, i.created_at) as created_at,
              iv.is_discount_active, iv.discount_type, iv.discount_value
@@ -25,10 +25,10 @@ router.get('/', (req, res) => {
       LEFT JOIN brand b ON i.brand_id = b.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
-        SELECT item_variant_id, selling_price,
-               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY id DESC) as rn
-        FROM sell_price_history
-      ) sph ON iv.id = sph.item_variant_id AND sph.rn = 1
+        SELECT item_variant_id, sell_price,
+               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY created_at DESC, id DESC) as rn
+        FROM stock_batch
+      ) sbp ON iv.id = sbp.item_variant_id AND sbp.rn = 1
       GROUP BY i.id, iv.id
       ORDER BY COALESCE(iv.created_at, i.created_at) DESC, i.name, v.variant_name
     `).all();
@@ -52,7 +52,7 @@ router.get('/:id', (req, res) => {
              b.discount_type as brand_discount_type,
              b.discount_value as brand_discount_value,
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-             sph.selling_price,
+             COALESCE(sbp.sell_price, 0) as selling_price,
              iv.is_discount_active, iv.discount_type, iv.discount_value
       FROM item_variant iv
       JOIN item i ON iv.item_id = i.id
@@ -61,10 +61,10 @@ router.get('/:id', (req, res) => {
       LEFT JOIN brand b ON i.brand_id = b.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
       LEFT JOIN (
-        SELECT item_variant_id, selling_price,
-               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY id DESC) as rn
-        FROM sell_price_history
-      ) sph ON iv.id = sph.item_variant_id AND sph.rn = 1
+        SELECT item_variant_id, sell_price,
+               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY created_at DESC, id DESC) as rn
+        FROM stock_batch
+      ) sbp ON iv.id = sbp.item_variant_id AND sbp.rn = 1
       WHERE iv.id = ?
       GROUP BY iv.id
     `).get(id);
@@ -78,10 +78,10 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// Create new item variant (optionally set initial selling price)
+// Create new item variant
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { variant_id, item_id, barcode, selling_price, staff_id } = req.body;
+  const { variant_id, item_id, barcode } = req.body;
 
   if (!variant_id || !item_id) {
     return res.status(400).json({ error: 'Variant ID and Item ID are required' });
@@ -104,37 +104,12 @@ router.post('/', (req, res) => {
     const result = db.prepare('INSERT INTO item_variant (variant_id, item_id, barcode, is_discount_active, discount_type, discount_value, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(variant_id, item_id, barcode, is_discount_active ? 1 : 0, discount_type || null, parseFloat(discount_value) || 0, getCurrentUTCTimestamp());
     const newVariantId = result.lastInsertRowid;
 
-    // If an initial selling price was provided, insert into sell_price_history
-    if (selling_price !== undefined && selling_price !== null && selling_price !== '') {
-      const uid = staff_id || 1;
-      try {
-        db.prepare('INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)').run(newVariantId, uid, selling_price, getCurrentUTCTimestamp());
-        return res.status(201).json({
-          id: newVariantId,
-          variant_id,
-          item_id,
-          barcode,
-          selling_price,
-          message: 'Item variant created successfully with initial selling price'
-        });
-      } catch (err2) {
-        console.error('Failed to insert initial selling price:', err2);
-        return res.status(201).json({
-          id: newVariantId,
-          variant_id,
-          item_id,
-          barcode,
-          message: 'Item variant created successfully (price not saved)'
-        });
-      }
-    }
-
     res.status(201).json({
       id: newVariantId,
       variant_id,
       item_id,
       barcode,
-      message: 'Item variant created successfully'
+      message: 'Item variant created successfully. Add stock batch with selling price next.'
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed')) {
@@ -257,12 +232,12 @@ router.get('/barcode/:barcode', (req, res) => {
       WHERE item_variant_id = ?
     `).get(row.id);
 
-    // Get selling price separately
+    // Get latest batch selling price
     const priceRow = db.prepare(`
-      SELECT selling_price
-      FROM sell_price_history
+      SELECT sell_price
+      FROM stock_batch
       WHERE item_variant_id = ?
-      ORDER BY id DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 1
     `).get(row.id);
 
@@ -270,7 +245,7 @@ router.get('/barcode/:barcode', (req, res) => {
     const result = {
       ...row,
       total_stock: stockRow?.total_stock || 0,
-      selling_price: priceRow?.selling_price || 0
+      selling_price: priceRow?.sell_price || 0
     };
 
     res.json(result);
@@ -283,19 +258,33 @@ router.get('/barcode/:barcode', (req, res) => {
 router.post('/:id/price', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { selling_price, staff_id } = req.body;
+  const { selling_price } = req.body;
 
-  if (!selling_price || !staff_id) {
-    return res.status(400).json({ error: 'Selling price and staff ID are required' });
+  if (selling_price === undefined || selling_price === null || selling_price === '') {
+    return res.status(400).json({ error: 'Selling price is required' });
   }
 
   try {
-    const result = db.prepare('INSERT INTO sell_price_history (item_variant_id, staff_id, selling_price, created_at) VALUES (?, ?, ?, ?)').run(id, staff_id, selling_price, getCurrentUTCTimestamp());
-    res.status(201).json({
-      id: result.lastInsertRowid,
+    const latestBatch = db.prepare(`
+      SELECT id
+      FROM stock_batch
+      WHERE item_variant_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(id);
+
+    if (!latestBatch) {
+      return res.status(404).json({ error: 'No stock batch found for this item variant' });
+    }
+
+    db.prepare('UPDATE stock_batch SET sell_price = ?, updated_at = ? WHERE id = ?')
+      .run(parseFloat(selling_price), getCurrentUTCTimestamp(), latestBatch.id);
+
+    res.status(200).json({
       item_variant_id: id,
-      selling_price,
-      message: 'Price set successfully'
+      stock_batch_id: latestBatch.id,
+      selling_price: parseFloat(selling_price),
+      message: 'Latest stock batch price updated successfully'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

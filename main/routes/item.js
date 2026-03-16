@@ -40,13 +40,17 @@ router.get('/:id', (req, res) => {
     const variants = db.prepare(`
       SELECT iv.*, v.variant_name, 
              COALESCE(SUM(sb.remaining_qty), 0) as total_stock,
-             sph.selling_price
+             COALESCE(sbp.sell_price, 0) as selling_price
       FROM item_variant iv
       JOIN variant v ON iv.variant_id = v.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id
-      LEFT JOIN sell_price_history sph ON iv.id = sph.item_variant_id
+      LEFT JOIN (
+        SELECT item_variant_id, sell_price,
+               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY created_at DESC, id DESC) as rn
+        FROM stock_batch
+      ) sbp ON iv.id = sbp.item_variant_id AND sbp.rn = 1
       WHERE iv.item_id = ?
-      GROUP BY iv.id
+      GROUP BY iv.id, sbp.sell_price
       ORDER BY v.variant_name
     `).all(id);
 

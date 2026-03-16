@@ -109,6 +109,53 @@ const runMigrations = () => {
       db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.5_add_order_item_discount_columns');
     }
 
+    // Migration v1.6: Add sell_price to stock_batch and backfill from sell_price_history
+    const addStockBatchSellPriceMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.6_add_sell_price_to_stock_batch');
+
+    if (!addStockBatchSellPriceMigration) {
+      const stockBatchInfo = db.pragma('table_info(stock_batch)');
+      const hasSellPrice = stockBatchInfo.some(column => column.name === 'sell_price');
+
+      if (!hasSellPrice) {
+        console.log('Running migration v1.6: Adding sell_price column to stock_batch table...');
+        db.exec('ALTER TABLE stock_batch ADD COLUMN sell_price DECIMAL(10,2) NOT NULL DEFAULT 0;');
+      }
+
+      const hasSellPriceHistoryTable = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('sell_price_history');
+
+      if (hasSellPriceHistoryTable) {
+        console.log('Running migration v1.6: Backfilling stock_batch.sell_price from sell_price_history...');
+        db.exec(`
+          UPDATE stock_batch AS sb
+          SET sell_price = COALESCE(
+            (
+              SELECT sph.selling_price
+              FROM sell_price_history sph
+              WHERE sph.item_variant_id = sb.item_variant_id
+                AND sph.created_at <= sb.created_at
+              ORDER BY sph.created_at DESC, sph.id DESC
+              LIMIT 1
+            ),
+            (
+              SELECT sph_latest.selling_price
+              FROM sell_price_history sph_latest
+              WHERE sph_latest.item_variant_id = sb.item_variant_id
+              ORDER BY sph_latest.created_at DESC, sph_latest.id DESC
+              LIMIT 1
+            ),
+            sb.sell_price,
+            0
+          )
+          WHERE sb.sell_price IS NULL OR sb.sell_price = 0;
+        `);
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.6_add_sell_price_to_stock_batch');
+      console.log('Migration v1.6 completed successfully - stock_batch sell_price enabled');
+    }
+
     // Migration v1.2: Remove stock_batch_id column
     const removeStockBatchMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.2_remove_stock_batch_id');
     
@@ -339,6 +386,7 @@ const createTables = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       item_variant_id INTEGER NOT NULL,
       buy_price DECIMAL(10,2) NOT NULL,
+      sell_price DECIMAL(10,2) NOT NULL DEFAULT 0,
       initial_qty INTEGER NOT NULL,
       remaining_qty INTEGER NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -378,6 +426,7 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_item_variant ON stock_batch(item_variant_id)',
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_supplier ON stock_batch(supplier_id)',
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_expire_date ON stock_batch(expire_date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant_created ON stock_batch(item_variant_id, created_at DESC, id DESC)',
     // Composite indexes for frequent JOIN + aggregate patterns
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant_remaining ON stock_batch(item_variant_id, remaining_qty)',
     'CREATE INDEX IF NOT EXISTS idx_sell_price_variant_id_desc ON sell_price_history(item_variant_id, id DESC)',

@@ -345,20 +345,22 @@ router.get('/stock/valuation', (req, res) => {
         ROUND(COALESCE(SUM(sb.buy_price * sb.remaining_qty), 0), 2) as total_cost_investment,
         
         -- Selling Information  
-        COALESCE(sph.selling_price, 0) as current_selling_price,
-        ROUND(COALESCE(sph.selling_price * SUM(sb.remaining_qty), 0), 2) as potential_revenue,
+        CASE 
+          WHEN SUM(sb.remaining_qty) > 0 
+          THEN ROUND(SUM(COALESCE(sb.sell_price, 0) * sb.remaining_qty) / SUM(sb.remaining_qty), 2)
+          ELSE COALESCE(AVG(sb.sell_price), 0)
+        END as current_selling_price,
+        ROUND(COALESCE(SUM(COALESCE(sb.sell_price, 0) * sb.remaining_qty), 0), 2) as potential_revenue,
         
         -- Profit Analysis
         ROUND(
-          COALESCE(sph.selling_price * SUM(sb.remaining_qty), 0) - 
-          COALESCE(SUM(sb.buy_price * sb.remaining_qty), 0), 2
+          COALESCE(SUM((COALESCE(sb.sell_price, 0) - sb.buy_price) * sb.remaining_qty), 0), 2
         ) as potential_profit,
         
         CASE 
           WHEN SUM(sb.buy_price * sb.remaining_qty) > 0 
           THEN ROUND(
-            ((COALESCE(sph.selling_price * SUM(sb.remaining_qty), 0) - 
-              COALESCE(SUM(sb.buy_price * sb.remaining_qty), 0)) / 
+            (COALESCE(SUM((COALESCE(sb.sell_price, 0) - sb.buy_price) * sb.remaining_qty), 0) / 
              COALESCE(SUM(sb.buy_price * sb.remaining_qty), 1)) * 100, 2
           )
           ELSE 0
@@ -366,7 +368,7 @@ router.get('/stock/valuation', (req, res) => {
         
         -- Last Updated
         MAX(sb.created_at) as last_stock_update,
-        sph.created_at as price_last_updated
+        MAX(COALESCE(sb.updated_at, sb.created_at)) as price_last_updated
         
       FROM item i
       JOIN item_variant iv ON i.id = iv.item_id
@@ -374,13 +376,8 @@ router.get('/stock/valuation', (req, res) => {
       JOIN category c ON i.category_id = c.id
       LEFT JOIN brand b ON i.brand_id = b.id
       LEFT JOIN stock_batch sb ON iv.id = sb.item_variant_id ${stockBatchFilter}
-      LEFT JOIN (
-        SELECT item_variant_id, selling_price, created_at,
-               ROW_NUMBER() OVER (PARTITION BY item_variant_id ORDER BY id DESC) as rn
-        FROM sell_price_history
-      ) sph ON iv.id = sph.item_variant_id AND sph.rn = 1
       
-      GROUP BY iv.id, i.name, v.variant_name, c.name, b.brand_name, iv.barcode, sph.selling_price, sph.created_at
+      GROUP BY iv.id, i.name, v.variant_name, c.name, b.brand_name, iv.barcode
       HAVING current_stock > 0  -- Only items with stock
       ORDER BY iv.created_at DESC
     `).all(...params);
