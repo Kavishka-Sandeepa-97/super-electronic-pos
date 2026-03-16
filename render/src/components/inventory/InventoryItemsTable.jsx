@@ -24,7 +24,6 @@ import {
   Edit as EditIcon,
   Add as AddIcon,
   ListAlt as ListAltIcon,
-  Print as PrintIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
@@ -42,7 +41,6 @@ const InventoryItemsTable = ({
   onEditItem,
   onAddStock,
   onViewStockBatch,
-  onPrintBarcode,
   onDeleteItem,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -164,32 +162,31 @@ const InventoryItemsTable = ({
                           </>
                         ) : '-'}
                       </TableCell>
-                      <TableCell>
+                      <TableCell
+                        sx={{
+                          whiteSpace: 'nowrap',
+                          '& .MuiIconButton-root': { p: 0.9 },
+                          '& .MuiSvgIcon-root': { fontSize: '1.25rem' },
+                        }}
+                      >
                         <Tooltip title="Edit Item">
-                          <IconButton size="small" onClick={() => onEditItem(item)}>
-                            <EditIcon fontSize="small" />
+                          <IconButton size="medium" onClick={() => onEditItem(item)}>
+                            <EditIcon />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Add Stock">
-                          <IconButton size="small" color="secondary" onClick={() => onAddStock(item)}>
-                            <AddIcon fontSize="small" />
+                          <IconButton size="medium" color="secondary" onClick={() => onAddStock(item)}>
+                            <AddIcon />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="View Stock Details">
-                          <IconButton size="small" color="info" onClick={() => onViewStockBatch(item)}>
-                            <ListAltIcon fontSize="small" />
+                          <IconButton size="medium" color="info" onClick={() => onViewStockBatch(item)}>
+                            <ListAltIcon />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Print Barcode Labels">
-                          <span>
-                            <IconButton size="small" color="success" onClick={() => onPrintBarcode(item)} disabled={!item.barcode}>
-                              <PrintIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
                         <Tooltip title="Delete Item">
-                          <IconButton size="small" color="error" onClick={() => onDeleteItem(item.id)}>
-                            <DeleteIcon fontSize="small" />
+                          <IconButton size="medium" color="error" onClick={() => onDeleteItem(item.id)}>
+                            <DeleteIcon />
                           </IconButton>
                         </Tooltip>
                       </TableCell>

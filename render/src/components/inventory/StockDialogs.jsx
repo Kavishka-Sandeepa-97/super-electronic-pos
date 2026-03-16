@@ -27,6 +27,31 @@ import {
 } from '@mui/material';
 import { Print as PrintIcon } from '@mui/icons-material';
 
+const toNumber = (value, fallback = 0) => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const getSellPrice = (movement) => toNumber(movement.sell_price ?? movement.price ?? 0, 0);
+
+const getBuyPrice = (movement) => {
+  const buyCandidate = movement.buy_price ?? movement.batch_buy_price;
+  const parsed = parseFloat(buyCandidate);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+// Profit percentage is calculated against selling price: (sell - buy) / sell * 100
+const getProfitPercent = (movement) => {
+  const sellPrice = getSellPrice(movement);
+  const buyPrice = getBuyPrice(movement);
+
+  if (!Number.isFinite(sellPrice) || sellPrice <= 0 || buyPrice === null) {
+    return null;
+  }
+
+  return ((sellPrice - buyPrice) / sellPrice) * 100;
+};
+
 // ─── Add Stock Dialog ───────────────────────────────────────────────────────
 export const AddStockDialog = ({ open, onClose, selectedItem, newStockData, setNewStockData, onSave }) => (
   <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -112,7 +137,18 @@ export const StockBatchDialog = ({
   onEditStockBatch,
   onPrintStockBatchBarcode,
 }) => (
-  <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+  <Dialog
+    open={open}
+    onClose={onClose}
+    maxWidth="xl"
+    fullWidth
+    PaperProps={{
+      sx: {
+        width: { xs: '96vw', md: '94vw' },
+        maxWidth: 1500,
+      },
+    }}
+  >
     <DialogTitle>
       Stock Details -{' '}
       {selectedItem?.item_name || selectedItem?.name} (
@@ -182,7 +218,9 @@ export const StockBatchDialog = ({
                 <TableRow>
                   <TableCell>Date</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Price</TableCell>
+                  <TableCell>Selling Price</TableCell>
+                  <TableCell>Buying Price</TableCell>
+                  <TableCell>Profit %</TableCell>
                   {stockFilters.type === 'sale' && (
                     <>
                       <TableCell>Quantity Sold</TableCell>
@@ -203,7 +241,7 @@ export const StockBatchDialog = ({
               <TableBody>
                 {filteredStockData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={stockFilters.type === 'stockIn' ? 7 : 6} align="center">
+                    <TableCell colSpan={stockFilters.type === 'stockIn' ? 9 : 8} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No movements match the selected filters
                       </Typography>
@@ -219,6 +257,13 @@ export const StockBatchDialog = ({
                         '&:hover': stockFilters.type === 'stockIn' ? { backgroundColor: 'action.hover' } : {},
                       }}
                     >
+                      {(() => {
+                        const sellingPrice = getSellPrice(movement);
+                        const buyingPrice = getBuyPrice(movement);
+                        const profitPercent = getProfitPercent(movement);
+
+                        return (
+                          <>
                       <TableCell>
                         {movement.date
                           ? new Date(movement.date).toLocaleDateString()
@@ -235,7 +280,27 @@ export const StockBatchDialog = ({
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" fontWeight="bold" color={stockFilters.type === 'stockIn' ? 'primary.main' : 'inherit'}>
-                          Rs. {parseFloat(movement.sell_price ?? movement.price ?? 0).toFixed(2)}
+                          Rs. {sellingPrice.toFixed(2)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight="bold" color="text.secondary">
+                          {buyingPrice === null ? '-' : `Rs. ${buyingPrice.toFixed(2)}`}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography
+                          variant="body2"
+                          fontWeight="bold"
+                          color={
+                            profitPercent === null
+                              ? 'text.secondary'
+                              : profitPercent >= 0
+                              ? 'success.main'
+                              : 'error.main'
+                          }
+                        >
+                          {profitPercent === null ? '-' : `${profitPercent.toFixed(2)}%`}
                         </Typography>
                       </TableCell>
                       {stockFilters.type === 'sale' && (
@@ -280,6 +345,9 @@ export const StockBatchDialog = ({
                           </TableCell>
                         </>
                       )}
+                          </>
+                        );
+                      })()}
                     </TableRow>
                   ))
                 )}

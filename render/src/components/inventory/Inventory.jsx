@@ -468,7 +468,6 @@ const Inventory = () => {
             onEditItem={handleEditItem}
             onAddStock={handleAddStockClick}
             onViewStockBatch={handleViewStockBatch}
-            onPrintBarcode={handleOpenBarcodePrint}
             onDeleteItem={handleDeleteItem}
           />
         </>
