@@ -610,6 +610,16 @@ const Inventory = () => {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Barcode"
+                value={newItem.barcode || ''}
+                onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
+                placeholder="Enter barcode"
+                helperText="Leave empty to remove barcode"
+              />
+            </Grid>
 
             {/* Discount Settings */}
             <Grid item xs={12}>
