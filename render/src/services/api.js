@@ -800,6 +800,10 @@ export const reportsAPI = {
     const queryString = new URLSearchParams(params).toString();
     return makeRequest(`/reports/stock/valuation?${queryString}`);
   },
+
+  getDailyOrders: async (date) => {
+    return makeRequest(`/reports/pos/daily-orders/${date}`);
+  },
 };
 
 // Database API

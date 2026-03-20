@@ -23,6 +23,11 @@ import {
   Chip,
   IconButton,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  CircularProgress,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -66,6 +71,10 @@ const Reports = () => {
   const [inventoryValuation, setInventoryValuation] = useState({ data: [], summary: {} });
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [dailyOrdersData, setDailyOrdersData] = useState(null);
+  const [dailyOrdersLoading, setDailyOrdersLoading] = useState(false);
 
   const fetchReportsData = async () => {
     setLoading(true);
@@ -123,6 +132,23 @@ const Reports = () => {
     setPeriod(event.target.value);
   };
 
+  const handleRevenueRowClick = async (rowData) => {
+    setSelectedDate(rowData.period);
+    setDetailDialogOpen(true);
+    setDailyOrdersData(null);
+    setDailyOrdersLoading(true);
+    
+    try {
+      const result = await reportsAPI.getDailyOrders(rowData.period);
+      setDailyOrdersData(result);
+    } catch (error) {
+      console.error('Error fetching daily orders:', error);
+      toast.error('Failed to load daily order details');
+    } finally {
+      setDailyOrdersLoading(false);
+    }
+  };
+
   const handleDownloadReport = (type) => {
     // Simple CSV export for now
     let csvContent = '';
@@ -130,9 +156,9 @@ const Reports = () => {
 
     switch (type) {
       case 'revenue':
-        csvContent = 'Period,Orders,Revenue,Min Order,Max Order\n' +
+        csvContent = 'Period,Orders,Revenue,COGS,Profit,Margin %,Min Order,Max Order\n' +
           revenueData.map(row =>
-            `${row.period},${row.order_count},${row.total_revenue},${row.min_order},${row.max_order}`
+            `${row.period},${row.order_count},${row.total_revenue},${row.total_cogs},${row.total_profit},${row.margin_percent},${row.min_order},${row.max_order}`
           ).join('\n');
         filename = 'revenue_report.csv';
         break;
@@ -174,6 +200,7 @@ const Reports = () => {
 
   const totalRevenue = revenueData.reduce((sum, item) => sum + parseFloat(item.total_revenue || 0), 0);
   const totalOrders = revenueData.reduce((sum, item) => sum + parseInt(item.order_count || 0), 0);
+  const totalProfit = revenueData.reduce((sum, item) => sum + parseFloat(item.total_profit || 0), 0);
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -235,7 +262,7 @@ const Reports = () => {
 
         {/* Summary Cards */}
         <Grid container spacing={3} mb={3}>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <Card>
               <CardContent>
                 <Box display="flex" alignItems="center" mb={1}>
@@ -248,7 +275,7 @@ const Reports = () => {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <Card>
               <CardContent>
                 <Box display="flex" alignItems="center" mb={1}>
@@ -257,6 +284,19 @@ const Reports = () => {
                 </Box>
                 <Typography variant="h4" color="secondary">
                   {totalOrders}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Box display="flex" alignItems="center" mb={1}>
+                  <CategoryIcon color={totalProfit >= 0 ? 'success' : 'error'} sx={{ mr: 1 }} />
+                  <Typography variant="h6">Overall Profit</Typography>
+                </Box>
+                <Typography variant="h4" color={totalProfit >= 0 ? 'success.main' : 'error.main'}>
+                  {formatCurrency(totalProfit)}
                 </Typography>
               </CardContent>
             </Card>
@@ -289,7 +329,14 @@ const Reports = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
                     <YAxis tickFormatter={formatCurrency} width={80} />
-                    <RechartsTooltip formatter={(value) => formatCurrency(value)} />
+                    <RechartsTooltip
+                      formatter={(value, name) => {
+                        if (name === 'Orders') {
+                          return [Number(value || 0), name];
+                        }
+                        return [formatCurrency(value), name];
+                      }}
+                    />
                     <Legend />
                     <Line
                       type="monotone"
@@ -305,6 +352,13 @@ const Reports = () => {
                       name="Orders"
                       strokeWidth={2}
                     />
+                    <Line
+                      type="monotone"
+                      dataKey="total_profit"
+                      stroke="#ff7043"
+                      name="Profit"
+                      strokeWidth={2}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
                 <TableContainer component={Paper} sx={{ mt: 2 }}>
@@ -314,16 +368,35 @@ const Reports = () => {
                         <TableCell>Period</TableCell>
                         <TableCell align="right">Orders</TableCell>
                         <TableCell align="right">Revenue</TableCell>
+                        <TableCell align="right">COGS</TableCell>
+                        <TableCell align="right">Profit</TableCell>
+                        <TableCell align="right">Margin %</TableCell>
                         <TableCell align="right">Min Order</TableCell>
                         <TableCell align="right">Max Order</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {revenueData.map((row) => (
-                        <TableRow key={row.period}>
+                        <TableRow 
+                          key={row.period}
+                          onClick={() => handleRevenueRowClick(row)}
+                          sx={{
+                            cursor: 'pointer',
+                            '&:hover': {
+                              backgroundColor: '#f5f5f5',
+                            },
+                          }}
+                        >
                           <TableCell>{row.period}</TableCell>
                           <TableCell align="right">{row.order_count}</TableCell>
                           <TableCell align="right">{formatCurrency(row.total_revenue)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.total_cogs)}</TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold" color={Number(row.total_profit || 0) >= 0 ? 'success.main' : 'error.main'}>
+                              {formatCurrency(row.total_profit)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">{Number(row.margin_percent || 0).toFixed(2)}%</TableCell>
                           <TableCell align="right">{formatCurrency(row.min_order)}</TableCell>
                           <TableCell align="right">{formatCurrency(row.max_order)}</TableCell>
                         </TableRow>
@@ -662,6 +735,229 @@ const Reports = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Daily Orders Detail Dialog */}
+        <Dialog 
+          open={detailDialogOpen} 
+          onClose={() => setDetailDialogOpen(false)}
+          maxWidth="lg"
+          fullWidth
+        >
+          <DialogTitle>
+            Daily Order Details - {selectedDate}
+            {dailyOrdersData && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Total Orders: {dailyOrdersData.summary?.total_orders || 0} | Revenue: {formatCurrency(dailyOrdersData.summary?.total_revenue || 0)} | Profit: {formatCurrency(dailyOrdersData.summary?.total_profit || 0)}
+              </Typography>
+            )}
+          </DialogTitle>
+          <DialogContent dividers sx={{ maxHeight: '70vh', overflowY: 'auto' }}>
+            {dailyOrdersLoading ? (
+              <Box display="flex" justifyContent="center" alignItems="center" py={4}>
+                <CircularProgress />
+              </Box>
+            ) : dailyOrdersData ? (
+              <Box>
+                {/* Summary Statistics */}
+                {dailyOrdersData.summary && (
+                  <Grid container spacing={2} sx={{ mb: 3 }}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Orders</Typography>
+                          <Typography variant="h6">{dailyOrdersData.summary.total_orders}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Revenue</Typography>
+                          <Typography variant="h6" color="primary">{formatCurrency(dailyOrdersData.summary.total_revenue)}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">COGS</Typography>
+                          <Typography variant="h6" color="warning.main">{formatCurrency(dailyOrdersData.summary.total_cogs)}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Profit</Typography>
+                          <Typography variant="h6" color={Number(dailyOrdersData.summary.total_profit || 0) >= 0 ? 'success.main' : 'error.main'}>
+                            {formatCurrency(dailyOrdersData.summary.total_profit)}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Margin %</Typography>
+                          <Typography variant="h6">{Number(dailyOrdersData.summary.margin_percent || 0).toFixed(2)}%</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Cash</Typography>
+                          <Typography variant="h6" color="success.main">{formatCurrency(dailyOrdersData.summary.cash_revenue)}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Card</Typography>
+                          <Typography variant="h6" color="info.main">{formatCurrency(dailyOrdersData.summary.card_revenue)}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Card>
+                        <CardContent sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">Avg Order</Typography>
+                          <Typography variant="h6">{formatCurrency(dailyOrdersData.summary.avg_order)}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  </Grid>
+                )}
+
+                {/* Orders Table */}
+                <Typography variant="h6" sx={{ mb: 2 }}>Orders Breakdown</Typography>
+                <TableContainer component={Paper}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                        <TableCell><strong>Order #</strong></TableCell>
+                        <TableCell><strong>Type</strong></TableCell>
+                        <TableCell><strong>Payment</strong></TableCell>
+                        <TableCell><strong>Staff</strong></TableCell>
+                        <TableCell align="right"><strong>Amount</strong></TableCell>
+                        <TableCell align="right"><strong>COGS</strong></TableCell>
+                        <TableCell align="right"><strong>Profit</strong></TableCell>
+                        <TableCell align="right"><strong>Items</strong></TableCell>
+                        <TableCell><strong>Time</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {dailyOrdersData.orders && dailyOrdersData.orders.map((order) => {
+                        const orderTime = order.date ? new Date(order.date).toLocaleTimeString() : '-';
+                        const itemCount = order.items ? order.items.length : 0;
+                        return (
+                          <TableRow key={order.id} hover>
+                            <TableCell>
+                              <Chip 
+                                label={order.order_number} 
+                                size="small" 
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={order.order_type} 
+                                size="small"
+                                color={order.is_return ? 'error' : 'success'}
+                                variant="filled"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={order.payment_type} 
+                                size="small"
+                                color={order.is_card_payment ? 'info' : 'success'}
+                                variant="outlined"
+                              />
+                            </TableCell>
+                            <TableCell>{order.staff_name || '-'}</TableCell>
+                            <TableCell align="right">
+                              <Typography fontWeight="bold" color="primary">
+                                {formatCurrency(order.total_amount)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">{formatCurrency(order.total_cogs)}</TableCell>
+                            <TableCell align="right">
+                              <Typography fontWeight="bold" color={Number(order.total_profit || 0) >= 0 ? 'success.main' : 'error.main'}>
+                                {formatCurrency(order.total_profit)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">{itemCount}</TableCell>
+                            <TableCell>{orderTime}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {/* Detailed Items View */}
+                {dailyOrdersData.orders && dailyOrdersData.orders.length > 0 && (
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2 }}>Items Sold</Typography>
+                    <TableContainer component={Paper}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                            <TableCell><strong>Order #</strong></TableCell>
+                            <TableCell><strong>Product</strong></TableCell>
+                            <TableCell><strong>Variant</strong></TableCell>
+                            <TableCell align="right"><strong>Qty</strong></TableCell>
+                            <TableCell align="right"><strong>Unit Price</strong></TableCell>
+                            <TableCell align="right"><strong>Line Total</strong></TableCell>
+                            <TableCell><strong>Category</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {dailyOrdersData.orders.flatMap(order =>
+                            (order.items || []).map((item, idx) => (
+                              <TableRow key={`${order.id}-${idx}`}>
+                                <TableCell>
+                                  <Chip 
+                                    label={order.order_number}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell>{item.item_name}</TableCell>
+                                <TableCell>
+                                  <Chip 
+                                    label={item.variant_name} 
+                                    size="small" 
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell align="right">{item.qty}</TableCell>
+                                <TableCell align="right">{formatCurrency(item.unit_price)}</TableCell>
+                                <TableCell align="right">
+                                  <Typography fontWeight="bold">{formatCurrency(item.line_total)}</Typography>
+                                </TableCell>
+                                <TableCell>{item.category_name}</TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                )}
+              </Box>
+            ) : (
+              <Typography color="text.secondary">No orders found for this date.</Typography>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDetailDialogOpen(false)} variant="contained">
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </LocalizationProvider>
   );

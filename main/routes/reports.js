@@ -138,17 +138,78 @@ router.get('/pos/revenue', (req, res) => {
 
   try {
     const query = `
+      WITH filtered_orders AS (
+        SELECT
+          id,
+          total_amount,
+          ${groupFormat} AS period
+        FROM orders
+        WHERE status = 'completed'
+          AND DATE(date) >= ?
+          AND DATE(date) <= ?
+      ),
+      allocated_costs AS (
+        SELECT
+          ivo.order_id,
+          SUM(
+            (CASE WHEN ivo.qty < 0 THEN -oiba.qty_allocated ELSE oiba.qty_allocated END)
+            * COALESCE(sb.buy_price, 0)
+          ) AS allocated_cost
+        FROM item_variant_order ivo
+        JOIN filtered_orders fo ON fo.id = ivo.order_id
+        JOIN order_item_batch_allocation oiba ON oiba.item_variant_order_id = ivo.id
+        LEFT JOIN stock_batch sb ON oiba.stock_batch_id = sb.id
+        GROUP BY ivo.order_id
+      ),
+      fallback_costs AS (
+        SELECT
+          ivo.order_id,
+          SUM(
+            ivo.qty * COALESCE(
+              (
+                SELECT CASE
+                  WHEN SUM(sb2.initial_qty) > 0 THEN SUM(sb2.buy_price * sb2.initial_qty) / SUM(sb2.initial_qty)
+                  ELSE AVG(sb2.buy_price)
+                END
+                FROM stock_batch sb2
+                WHERE sb2.item_variant_id = ivo.item_variant_id
+              ),
+              0
+            )
+          ) AS fallback_cost
+        FROM item_variant_order ivo
+        JOIN filtered_orders fo ON fo.id = ivo.order_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM order_item_batch_allocation oiba2
+          WHERE oiba2.item_variant_order_id = ivo.id
+        )
+        GROUP BY ivo.order_id
+      ),
+      order_costs AS (
+        SELECT
+          fo.id AS order_id,
+          ROUND(COALESCE(ac.allocated_cost, 0) + COALESCE(fc.fallback_cost, 0), 2) AS total_cogs
+        FROM filtered_orders fo
+        LEFT JOIN allocated_costs ac ON ac.order_id = fo.id
+        LEFT JOIN fallback_costs fc ON fc.order_id = fo.id
+      )
       SELECT
-        ${groupFormat} as period,
-        COUNT(*) as order_count,
-        SUM(total_amount) as total_revenue,
-        MIN(total_amount) as min_order,
-        MAX(total_amount) as max_order
-      FROM orders
-      WHERE status = 'completed'
-        AND DATE(date) >= ?
-        AND DATE(date) <= ?
-      GROUP BY ${groupFormat}
+        fo.period AS period,
+        COUNT(*) AS order_count,
+        ROUND(SUM(fo.total_amount), 2) AS total_revenue,
+        ROUND(SUM(COALESCE(oc.total_cogs, 0)), 2) AS total_cogs,
+        ROUND(SUM(fo.total_amount - COALESCE(oc.total_cogs, 0)), 2) AS total_profit,
+        ROUND(MIN(fo.total_amount), 2) AS min_order,
+        ROUND(MAX(fo.total_amount), 2) AS max_order,
+        CASE
+          WHEN SUM(fo.total_amount) != 0
+          THEN ROUND((SUM(fo.total_amount - COALESCE(oc.total_cogs, 0)) / SUM(fo.total_amount)) * 100, 2)
+          ELSE 0
+        END AS margin_percent
+      FROM filtered_orders fo
+      LEFT JOIN order_costs oc ON oc.order_id = fo.id
+      GROUP BY fo.period
       ORDER BY period DESC
     `;
 
@@ -476,6 +537,191 @@ router.get('/stock/valuation', (req, res) => {
     });
   } catch (err) {
     console.error('Inventory valuation report error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Daily orders detail - fetch all orders for a specific date with items
+router.get('/pos/daily-orders/:date', (req, res) => {
+  const db = getDatabase();
+  const { date } = req.params;
+
+  try {
+    // Parse the date (YYYY-MM-DD format)
+    const selectedDate = new Date(date + 'T00:00:00');
+    if (isNaN(selectedDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+
+    const dateStart = formatLocalDate(new Date(selectedDate.getTime() - (selectedDate.getTimezoneOffset() * 60000)));
+
+    const orderCosts = db.prepare(`
+      WITH allocated_costs AS (
+        SELECT
+          ivo.order_id,
+          SUM(
+            (CASE WHEN ivo.qty < 0 THEN -oiba.qty_allocated ELSE oiba.qty_allocated END)
+            * COALESCE(sb.buy_price, 0)
+          ) AS allocated_cost
+        FROM item_variant_order ivo
+        JOIN orders o ON o.id = ivo.order_id
+        JOIN order_item_batch_allocation oiba ON oiba.item_variant_order_id = ivo.id
+        LEFT JOIN stock_batch sb ON oiba.stock_batch_id = sb.id
+        WHERE o.status = 'completed'
+          AND DATE(o.date) = ?
+        GROUP BY ivo.order_id
+      ),
+      fallback_costs AS (
+        SELECT
+          ivo.order_id,
+          SUM(
+            ivo.qty * COALESCE(
+              (
+                SELECT CASE
+                  WHEN SUM(sb2.initial_qty) > 0 THEN SUM(sb2.buy_price * sb2.initial_qty) / SUM(sb2.initial_qty)
+                  ELSE AVG(sb2.buy_price)
+                END
+                FROM stock_batch sb2
+                WHERE sb2.item_variant_id = ivo.item_variant_id
+              ),
+              0
+            )
+          ) AS fallback_cost
+        FROM item_variant_order ivo
+        JOIN orders o ON o.id = ivo.order_id
+        WHERE o.status = 'completed'
+          AND DATE(o.date) = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM order_item_batch_allocation oiba2
+            WHERE oiba2.item_variant_order_id = ivo.id
+          )
+        GROUP BY ivo.order_id
+      )
+      SELECT
+        o.id AS order_id,
+        ROUND(COALESCE(ac.allocated_cost, 0) + COALESCE(fc.fallback_cost, 0), 2) AS total_cogs
+      FROM orders o
+      LEFT JOIN allocated_costs ac ON ac.order_id = o.id
+      LEFT JOIN fallback_costs fc ON fc.order_id = o.id
+      WHERE o.status = 'completed'
+        AND DATE(o.date) = ?
+    `).all(dateStart, dateStart, dateStart);
+
+    const orderCostMap = orderCosts.reduce((acc, row) => {
+      acc[row.order_id] = Number(row.total_cogs || 0);
+      return acc;
+    }, {});
+
+    // Fetch all orders for the date
+    const orders = db.prepare(`
+      SELECT
+        o.id,
+        'ORD-' || CAST(o.id AS TEXT) as order_number,
+        o.status,
+        o.total_amount,
+        COALESCE(o.discount_value, 0) as discount_amount,
+        o.tender_cash,
+        COALESCE(o.tender_cash, 0) - o.total_amount as change_amount,
+        o.is_return,
+        o.is_card_payment,
+        o.customer_name,
+        o.date,
+        o.staff_id,
+        s.name as staff_name
+      FROM orders o
+      LEFT JOIN staff s ON o.staff_id = s.id
+      WHERE o.status = 'completed'
+        AND DATE(o.date) = ?
+      ORDER BY o.date DESC
+    `).all(dateStart);
+
+    // For each order, fetch its items
+    const ordersWithItems = orders.map(order => {
+      const items = db.prepare(`
+        SELECT
+          ivo.id as item_variant_order_id,
+          ivo.item_variant_id,
+          ivo.qty,
+          ivo.unit_price,
+          (ivo.qty * ivo.unit_price) as line_total,
+          iv.barcode,
+          i.name as item_name,
+          v.variant_name,
+          c.name as category_name,
+          b.brand_name
+        FROM item_variant_order ivo
+        JOIN item_variant iv ON ivo.item_variant_id = iv.id
+        JOIN item i ON iv.item_id = i.id
+        JOIN variant v ON iv.variant_id = v.id
+        JOIN category c ON i.category_id = c.id
+        LEFT JOIN brand b ON i.brand_id = b.id
+        WHERE ivo.order_id = ?
+      `).all(order.id);
+
+      const totalCogs = Number(orderCostMap[order.id] || 0);
+      const totalRevenue = Number(order.total_amount || 0);
+      const totalProfit = Number((totalRevenue - totalCogs).toFixed(2));
+
+      return {
+        ...order,
+        items: items,
+        total_cogs: Number(totalCogs.toFixed(2)),
+        total_profit: totalProfit,
+        payment_type: order.is_card_payment ? 'Card' : 'Cash',
+        order_type: order.is_return ? 'Return' : 'Regular',
+      };
+    });
+
+    // Calculate summary for the day
+    const summary = db.prepare(`
+      SELECT
+        COUNT(*) as total_orders,
+        SUM(total_amount) as total_revenue,
+        SUM(CASE WHEN is_card_payment = 0 THEN total_amount ELSE 0 END) as cash_revenue,
+        SUM(CASE WHEN is_card_payment = 1 THEN total_amount ELSE 0 END) as card_revenue,
+        SUM(CASE WHEN is_return = 1 THEN total_amount ELSE 0 END) as return_revenue,
+        SUM(CASE WHEN is_return = 0 THEN total_amount ELSE 0 END) as regular_revenue,
+        MIN(total_amount) as min_order,
+        MAX(total_amount) as max_order,
+        ROUND(AVG(total_amount), 2) as avg_order
+      FROM orders
+      WHERE status = 'completed'
+        AND DATE(date) = ?
+    `).get(dateStart);
+
+    const summaryRevenue = Number(summary?.total_revenue || 0);
+    const summaryCogs = Number(
+      ordersWithItems.reduce((sum, order) => sum + Number(order.total_cogs || 0), 0).toFixed(2)
+    );
+    const summaryProfit = Number((summaryRevenue - summaryCogs).toFixed(2));
+    const summaryMargin = summaryRevenue !== 0
+      ? Number(((summaryProfit / summaryRevenue) * 100).toFixed(2))
+      : 0;
+
+    const toAmount = (value) => Number(Number(value || 0).toFixed(2));
+    const normalizedSummary = {
+      total_orders: Number(summary?.total_orders || 0),
+      total_revenue: toAmount(summary?.total_revenue),
+      total_cogs: toAmount(summaryCogs),
+      total_profit: toAmount(summaryProfit),
+      margin_percent: toAmount(summaryMargin),
+      cash_revenue: toAmount(summary?.cash_revenue),
+      card_revenue: toAmount(summary?.card_revenue),
+      return_revenue: toAmount(summary?.return_revenue),
+      regular_revenue: toAmount(summary?.regular_revenue),
+      min_order: toAmount(summary?.min_order),
+      max_order: toAmount(summary?.max_order),
+      avg_order: toAmount(summary?.avg_order),
+    };
+
+    res.json({
+      date: dateStart,
+      orders: ordersWithItems,
+      summary: normalizedSummary,
+    });
+  } catch (err) {
+    console.error('Daily orders detail error:', err);
     res.status(500).json({ error: err.message });
   }
 });
