@@ -103,6 +103,8 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
       .items td:nth-child(2) { width: 10%; text-align: center; }
       .items td:nth-child(3) { width: 30%; text-align: right; }
       .disc-row td { font-size: 10px; color: #333; padding: 0 0 2px 8px; font-weight: normal; }
+      .discount-summary-row td { font-size: 12px; font-weight: 700; }
+      .discount-highlight { font-size: 13px; font-weight: 900; letter-spacing: 0.2px; }
       .sep { border-top: 1px dashed #000; margin: 6px 0; }
       .total-row td { font-size: 15px; font-weight: 900; }
       .receipt-footer { text-align: center; margin-top: 10px; }
@@ -133,7 +135,7 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
         ? `${discVal}%`
         : `${currency} ${discountPerUnit.toFixed(2)}`;
 
-      row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${origPrice.toFixed(2)} | Discount: ${discountText} | Final Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
+      row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${origPrice.toFixed(2)} | Discount: <span class="discount-highlight">${discountText}</span> | Final Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
     } else {
       row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
     }
@@ -179,8 +181,8 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
 
           <table>
             <tr><td>Subtotal</td><td class="right">${currency} ${totalItemDiscounts > 0 ? originalSubtotal.toFixed(2) : subtotal.toFixed(2)}</td></tr>
-            ${totalItemDiscounts > 0 ? `<tr><td>Item Discounts</td><td class="right">- ${currency} ${totalItemDiscounts.toFixed(2)}</td></tr>` : ''}
-            ${discountAmount > 0 ? `<tr><td>Discount${discount_type === 'percent' ? ` (${discount_value}%)` : ''}</td><td class="right">- ${currency} ${discountAmount.toFixed(2)}</td></tr>` : ''}
+            ${totalItemDiscounts > 0 ? `<tr class="discount-summary-row"><td>Item Discounts</td><td class="right">- <span class="discount-highlight">${currency} ${totalItemDiscounts.toFixed(2)}</span></td></tr>` : ''}
+            ${discountAmount > 0 ? `<tr class="discount-summary-row"><td>Discount${discount_type === 'percent' ? ` (${discount_value}%)` : ''}</td><td class="right">- <span class="discount-highlight">${currency} ${discountAmount.toFixed(2)}</span></td></tr>` : ''}
             ${additionalCharges > 0 ? `<tr><td>Additional Charge</td><td class="right">${currency} ${additionalCharges.toFixed(2)}</td></tr>` : ''}
             <tr class="total-row"><td>TOTAL</td><td class="right">${currency} ${total.toFixed(2)}</td></tr>
           </table>
