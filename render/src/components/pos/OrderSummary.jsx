@@ -42,7 +42,6 @@ import {
   setDiscount,
   resetItemDiscount,
   updateItemDiscount,
-  setAdditionalCharges,
   clearCurrentOrder,
   createOrder,
   updateOrder,
@@ -454,8 +453,6 @@ const OrderSummary = () => {
             </Box>
           )}
 
-          <Divider sx={{ mb: 2 }} />
-
           <Box className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
             {currentOrder.items.length === 0 ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'text.secondary' }}>
@@ -661,6 +658,7 @@ const OrderSummary = () => {
                   </Box>
                 )}
 
+                {/*
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                   <Typography variant="body1">Additional Charges</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -675,6 +673,7 @@ const OrderSummary = () => {
                     />
                   </Box>
                 </Box>
+                */}
 
                 {!currentOrder.isReturnOrder && (
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>

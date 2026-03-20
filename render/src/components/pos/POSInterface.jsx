@@ -705,7 +705,7 @@ const POSInterface = () => {
         </Grid>
 
         {/* Order Details */}
-        <Grid item xs={4} sx={{ borderLeft: '1px solid #e0e0e0', p: 2, position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}>
+        <Grid item xs={4} sx={{ borderLeft: '1px solid #e0e0e0', p: 2, position: 'sticky', top: 50, height: '100vh', overflowY: 'auto' }}>
           <OrderSummary />
         </Grid>
       </Grid>
