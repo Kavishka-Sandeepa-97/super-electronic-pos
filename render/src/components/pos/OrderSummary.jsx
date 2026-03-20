@@ -130,6 +130,8 @@ const OrderSummary = () => {
     return `Rs. ${Number.isFinite(parsedPrice) ? parsedPrice.toFixed(2) : '0.00'}`;
   };
 
+  const isValidDecimalInput = (value) => value === '' || /^\d*\.?\d{0,2}$/.test(value);
+
   const mapOrderItems = (items) => items.map((item) => ({
     item_variant_id: item.itemVariantId,
     qty: item.quantity,
@@ -565,12 +567,17 @@ const OrderSummary = () => {
                               </Select>
                               <TextField
                                 size="small"
-                                type="number"
+                                type="text"
                                 value={editDiscountValue}
-                                onChange={(event) => setEditDiscountValue(event.target.value)}
+                                onChange={(event) => {
+                                  const nextValue = event.target.value;
+                                  if (isValidDecimalInput(nextValue)) {
+                                    setEditDiscountValue(nextValue);
+                                  }
+                                }}
                                 placeholder="Value"
                                 sx={{ width: 70 }}
-                                inputProps={{ min: 0, step: 0.01, style: { fontSize: '0.75rem', padding: '4px 8px' } }}
+                                inputProps={{ inputMode: 'decimal', style: { fontSize: '0.75rem', padding: '4px 8px' } }}
                               />
                               <Button
                                 size="small"
@@ -701,11 +708,19 @@ const OrderSummary = () => {
                         {discountType === 'fixed' && <Typography variant="body2">Rs.</Typography>}
                         <TextField
                           size="small"
-                          type="number"
+                          type="text"
                           value={discountValue || ''}
                           disabled={!!globalDiscountSettings?.is_global_discount_active}
                           onChange={(event) => {
                             const inputValue = event.target.value;
+                            if (!isValidDecimalInput(inputValue)) {
+                              return;
+                            }
+
+                            if (discountType === 'percent' && parseFloat(inputValue || 0) > 100) {
+                              return;
+                            }
+
                             setDiscountValue(inputValue);
                             if (inputValue) {
                               const numValue = parseFloat(inputValue);
@@ -722,7 +737,7 @@ const OrderSummary = () => {
                             }
                           }}
                           sx={{ width: 100 }}
-                          inputProps={{ min: 0, max: discountType === 'percent' ? 100 : undefined, step: discountType === 'percent' ? 1 : 0.01 }}
+                          inputProps={{ inputMode: 'decimal' }}
                         />
                         {discountType === 'percent' && <Typography variant="body2">%</Typography>}
                       </Box>
@@ -755,11 +770,11 @@ const OrderSummary = () => {
                       <Typography variant="body2">Rs.</Typography>
                       <TextField
                         size="small"
-                        type="number"
+                        type="text"
                         value={amountPaid}
                         onChange={(event) => {
                           const value = event.target.value;
-                          if (value === '' || /^\d*\.?\d{0,2}$/.test(value)) {
+                          if (isValidDecimalInput(value)) {
                             setAmountPaid(value);
                           }
                         }}
@@ -770,7 +785,7 @@ const OrderSummary = () => {
                           }
                         }}
                         sx={{ width: 120 }}
-                        inputProps={{ min: 0, step: 0.01 }}
+                        inputProps={{ inputMode: 'decimal' }}
                       />
                     </Box>
                   </Box>
