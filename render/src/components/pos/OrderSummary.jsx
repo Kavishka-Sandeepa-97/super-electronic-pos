@@ -49,6 +49,8 @@ import {
   setReturnReason,
 } from '../../store/slices/orderSlice';
 import { fetchItemVariants } from '../../store/slices/inventorySlice';
+import { fetchActiveShift } from '../../store/slices/cashierShiftSlice';
+import { setActiveShift } from '../../store/slices/authSlice';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
@@ -162,6 +164,17 @@ const OrderSummary = () => {
     setCompletedOrder(null);
   };
 
+  const refreshCashOnHand = async () => {
+    if (!user?.id || user.role !== 'cashier') {
+      return;
+    }
+
+    try {
+      const activeShiftData = await dispatch(fetchActiveShift(user.id)).unwrap();
+      dispatch(setActiveShift(activeShiftData || null));
+    } catch (_error) {}
+  };
+
   const handleQuantityChange = (item, newQuantity) => {
     const lineKey = item.lineKey;
 
@@ -220,6 +233,7 @@ const OrderSummary = () => {
 
       dispatch(fetchItemVariants());
       dispatch(fetchActiveOrders());
+      await refreshCashOnHand();
       dispatch(clearCurrentOrder());
       resetOrderUiState();
     } catch (error) {
@@ -293,6 +307,7 @@ const OrderSummary = () => {
 
       dispatch(fetchItemVariants());
       dispatch(fetchActiveOrders());
+      await refreshCashOnHand();
 
       setCompletedOrder({
         ...currentOrder,

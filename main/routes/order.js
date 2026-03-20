@@ -50,6 +50,10 @@ const parseBoolean = (value, fallback = false) => {
   return fallback;
 };
 
+const calculateOrderCashImpact = (totalAmount, isCardPayment) => {
+  return parseBoolean(isCardPayment, false) ? 0 : parseOptionalNumber(totalAmount, 0);
+};
+
 const normalizeOrderItems = (items, { allowEmpty = false } = {}) => {
   if (!Array.isArray(items)) {
     if (allowEmpty) {
@@ -950,11 +954,14 @@ router.post('/', (req, res) => {
     }
 
     if (status === 'completed') {
-      db.prepare(`
-        UPDATE cashier_shift
-        SET current_cash_onhand = current_cash_onhand + ?
-        WHERE staff_id = ? AND status = 'open'
-      `).run(totalAmount, staff_id);
+      const cashDelta = calculateOrderCashImpact(totalAmount, safeIsCardPayment);
+      if (cashDelta !== 0) {
+        db.prepare(`
+          UPDATE cashier_shift
+          SET current_cash_onhand = current_cash_onhand + ?
+          WHERE staff_id = ? AND status = 'open'
+        `).run(cashDelta, staff_id);
+      }
     }
 
     return orderId;
@@ -1006,7 +1013,8 @@ router.put('/:id/status', (req, res) => {
   try {
     const transaction = db.transaction(() => {
       const order = db.prepare(`
-        SELECT total_amount, staff_id, status as current_status, COALESCE(is_return, 0) AS is_return
+        SELECT total_amount, staff_id, status as current_status, COALESCE(is_return, 0) AS is_return,
+               COALESCE(is_card_payment, 0) AS is_card_payment
         FROM orders
         WHERE id = ?
       `).get(id);
@@ -1052,11 +1060,12 @@ router.put('/:id/status', (req, res) => {
         throw new Error('Order not found');
       }
 
+      const completedCashAmount = calculateOrderCashImpact(order.total_amount, order.is_card_payment);
       let cashChange = 0;
       if (order.current_status !== 'completed' && status === 'completed') {
-        cashChange = order.total_amount;
+        cashChange = completedCashAmount;
       } else if (order.current_status === 'completed' && status !== 'completed') {
-        cashChange = -order.total_amount;
+        cashChange = -completedCashAmount;
       }
 
       if (cashChange !== 0) {
@@ -1101,6 +1110,7 @@ router.put('/:id', (req, res) => {
     discount_value = 0,
     status,
     tender_cash,
+    is_card_payment,
     items,
   } = req.body;
 
@@ -1118,6 +1128,7 @@ router.put('/:id', (req, res) => {
   const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
   const safeDiscountValue = parseOptionalNumber(discount_value, 0);
   const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
+  const safeIsCardPayment = is_card_payment === undefined ? null : (parseBoolean(is_card_payment, false) ? 1 : 0);
 
   let subtotal = 0;
   for (const item of normalizedItems) {
@@ -1130,7 +1141,8 @@ router.put('/:id', (req, res) => {
   try {
     const transaction = db.transaction(() => {
       const oldOrder = db.prepare(`
-        SELECT total_amount as old_total, status as old_status, staff_id, tender_cash, COALESCE(is_return, 0) AS is_return
+        SELECT total_amount as old_total, status as old_status, staff_id, tender_cash,
+               COALESCE(is_return, 0) AS is_return, COALESCE(is_card_payment, 0) AS old_is_card_payment
         FROM orders
         WHERE id = ?
       `).get(id);
@@ -1146,11 +1158,12 @@ router.put('/:id', (req, res) => {
       const resolvedStatus = status || oldOrder.old_status;
       const resolvedStaffId = staff_id || oldOrder.staff_id;
       const resolvedTenderCash = safeTenderCash === null ? oldOrder.tender_cash : safeTenderCash;
+      const resolvedIsCardPayment = safeIsCardPayment === null ? oldOrder.old_is_card_payment : safeIsCardPayment;
 
       const updateResult = db.prepare(`
         UPDATE orders
         SET staff_id = ?, additional_charges = ?, total_amount = ?,
-            customer_name = ?, discount_type = ?, discount_value = ?, status = ?, tender_cash = ?
+            customer_name = ?, discount_type = ?, discount_value = ?, status = ?, tender_cash = ?, is_card_payment = ?
         WHERE id = ?
       `).run(
         resolvedStaffId,
@@ -1161,6 +1174,7 @@ router.put('/:id', (req, res) => {
         safeDiscountValue,
         resolvedStatus,
         resolvedTenderCash,
+        resolvedIsCardPayment,
         id
       );
 
@@ -1215,23 +1229,37 @@ router.put('/:id', (req, res) => {
         }
       }
 
-      let cashChange = 0;
-      if (resolvedStatus === 'completed') {
-        if (oldOrder.old_status === 'completed') {
-          cashChange = totalAmount - oldOrder.old_total;
-        } else {
-          cashChange = totalAmount;
-        }
-      } else if (oldOrder.old_status === 'completed') {
-        cashChange = -oldOrder.old_total;
-      }
+      const oldCompletedCash = oldOrder.old_status === 'completed'
+        ? calculateOrderCashImpact(oldOrder.old_total, oldOrder.old_is_card_payment)
+        : 0;
+      const newCompletedCash = resolvedStatus === 'completed'
+        ? calculateOrderCashImpact(totalAmount, resolvedIsCardPayment)
+        : 0;
 
-      if (cashChange !== 0) {
-        db.prepare(`
-          UPDATE cashier_shift
-          SET current_cash_onhand = current_cash_onhand + ?
-          WHERE staff_id = ? AND status = 'open'
-        `).run(cashChange, resolvedStaffId);
+      if (resolvedStaffId === oldOrder.staff_id) {
+        const cashChange = newCompletedCash - oldCompletedCash;
+        if (cashChange !== 0) {
+          db.prepare(`
+            UPDATE cashier_shift
+            SET current_cash_onhand = current_cash_onhand + ?
+            WHERE staff_id = ? AND status = 'open'
+          `).run(cashChange, resolvedStaffId);
+        }
+      } else {
+        if (oldCompletedCash !== 0) {
+          db.prepare(`
+            UPDATE cashier_shift
+            SET current_cash_onhand = current_cash_onhand - ?
+            WHERE staff_id = ? AND status = 'open'
+          `).run(oldCompletedCash, oldOrder.staff_id);
+        }
+        if (newCompletedCash !== 0) {
+          db.prepare(`
+            UPDATE cashier_shift
+            SET current_cash_onhand = current_cash_onhand + ?
+            WHERE staff_id = ? AND status = 'open'
+          `).run(newCompletedCash, resolvedStaffId);
+        }
       }
 
       return { id, total_amount: totalAmount };

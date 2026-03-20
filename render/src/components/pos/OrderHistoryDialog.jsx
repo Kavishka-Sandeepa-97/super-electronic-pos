@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Dialog,
   DialogTitle,
@@ -38,15 +38,19 @@ import {
   Edit,
   Visibility,
   Delete,
+  Cancel,
   LocalOffer,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
-import { loadOrderForEdit } from '../../store/slices/orderSlice';
+import { loadOrderForEdit, fetchActiveOrders } from '../../store/slices/orderSlice';
+import { fetchActiveShift } from '../../store/slices/cashierShiftSlice';
+import { setActiveShift } from '../../store/slices/authSlice';
 
 const OrderHistoryDialog = ({ open, onClose }) => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { user } = useSelector((state) => state.auth);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -54,6 +58,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
   const [editMode, setEditMode] = useState(false);
   const [editedItems, setEditedItems] = useState([]);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState(null);
 
   // Filters
   const [dateFrom, setDateFrom] = useState('');
@@ -136,6 +141,61 @@ const OrderHistoryDialog = ({ open, onClose }) => {
   const handlePreviewOrder = (order, e) => {
     e.stopPropagation();
     handleRowClick(order, false);
+  };
+
+  const refreshCashOnHand = async () => {
+    if (!user?.id || user.role !== 'cashier') {
+      return;
+    }
+
+    try {
+      const activeShift = await dispatch(fetchActiveShift(user.id)).unwrap();
+      dispatch(setActiveShift(activeShift || null));
+    } catch (_error) {}
+  };
+
+  const handleCancelOrder = async (order, e) => {
+    e.stopPropagation();
+
+    if (order.status === 'cancelled') {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to cancel ${order.is_return ? 'return order' : 'order'} #${order.id}?\n\nThis will restore stock allocations and adjust cashier shift cash on hand if needed.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancellingOrderId(order.id);
+    try {
+      const response = await fetch(`http://localhost:3001/api/orders/${order.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to cancel order');
+      }
+
+      toast.success(data.message || `Order #${order.id} cancelled successfully`);
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder((previous) => (previous ? { ...previous, status: 'cancelled' } : previous));
+      }
+
+      await fetchOrders();
+      dispatch(fetchActiveOrders());
+      await refreshCashOnHand();
+    } catch (error) {
+      console.error('Failed to cancel order:', error);
+      toast.error(error.message || 'Failed to cancel order');
+    } finally {
+      setCancellingOrderId(null);
+    }
   };
 
   const handleUpdateItemQuantity = (index, newQty) => {
@@ -431,7 +491,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                                 size="small"
                                 color="primary"
                                 onClick={(e) => handleEditOrder(order, e)}
-                                disabled={!!order.is_return}
+                                disabled={!!order.is_return || order.status === 'cancelled'}
                               >
                                 <Edit fontSize="small" />
                               </IconButton>
@@ -444,6 +504,18 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                               >
                                 <Visibility fontSize="small" />
                               </IconButton>
+                            </Tooltip>
+                            <Tooltip title={order.status === 'cancelled' ? 'Already cancelled' : 'Cancel Order'}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={(e) => handleCancelOrder(order, e)}
+                                  disabled={order.status === 'cancelled' || cancellingOrderId === order.id}
+                                >
+                                  <Cancel fontSize="small" />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           </Box>
                         </TableCell>
