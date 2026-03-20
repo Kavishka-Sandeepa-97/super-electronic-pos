@@ -140,8 +140,8 @@ const PrinterSettings = () => {
       };
       const storeInfo = {
         name: 'SUPER GLOW',
-        address: 'Ganemulla',
-        phone: '071 160 0925',
+        address: '275/B/4 Galahitiyawa,Ganemulla',
+        phone: '071 160 0925/071 326 0021 (whatsapp)',
         receiptFooter: 'Thank you for your visit!'
       };
       

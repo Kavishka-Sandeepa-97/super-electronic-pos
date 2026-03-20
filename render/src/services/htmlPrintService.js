@@ -118,18 +118,26 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
     const displayName = variantName ? `${itemName} (${variantName})` : `${itemName}`;
     const qty = parseFloat(it.quantity || it.qty || 0) || 0;
     const price = parseFloat(it.price || it.unit_price || 0) || 0;
+    const origPrice = parseFloat(it.original_price || it.originalPrice || price) || price;
     const lineTotal = (qty * price).toFixed(2);
-    const discAmt = parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0;
-    const discSource = it.discount_source || it.discountSource || '';
+    const discAmtRaw = parseFloat(it.item_discount_amount || it.discount_amount || it.discountAmount || 0) || 0;
     const discType = it.item_discount_type || it.discount_type || it.discountType || '';
     const discVal = parseFloat(it.item_discount_value || it.discount_value || it.discountValue || 0) || 0;
+    const discountPerUnit = discAmtRaw > 0 ? discAmtRaw : Math.max(0, origPrice - price);
+    const hasDiscount = discountPerUnit > 0;
+
     let row = `<tr class="items"><td>${displayName}</td><td>${qty}</td><td class="right">${lineTotal}</td></tr>`;
-    row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
-    if (discAmt > 0 && discSource) {
-      const discLabel = discSource === 'item' ? 'Item Disc' : discSource === 'brand' ? 'Brand Disc' : discSource === 'global' ? 'Global Disc' : 'Disc';
-      const discInfo = discType === 'percentage' ? `${discVal}%` : `${currency} ${discVal.toFixed(2)}`;
-      row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;${discLabel}: -${discInfo} per unit</td></tr>`;
+
+    if (hasDiscount) {
+      const discountText = discType === 'percentage' && discVal > 0
+        ? `${discVal}%`
+        : `${currency} ${discountPerUnit.toFixed(2)}`;
+
+      row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${origPrice.toFixed(2)} | Discount: ${discountText} | Final Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
+    } else {
+      row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
     }
+
     return row;
   }).join('');
 
