@@ -144,6 +144,86 @@ const calculateDiscountAmount = (subtotal, discountType, discountValue) => {
   return 0;
 };
 
+const getGlobalDiscountSettings = (db) => {
+  try {
+    const row = db.prepare(`
+      SELECT
+        COALESCE(is_global_discount_active, 0) AS is_global_discount_active,
+        COALESCE(global_discount_type, 'percentage') AS global_discount_type,
+        COALESCE(global_discount_value, 0) AS global_discount_value,
+        COALESCE(min_order_amount, 0) AS min_order_amount
+      FROM global_discount_settings
+      WHERE key_value = ?
+      LIMIT 1
+    `).get('default');
+
+    if (!row) {
+      return {
+        isGlobalDiscountActive: false,
+        globalDiscountType: 'percentage',
+        globalDiscountValue: 0,
+        minOrderAmount: 0,
+      };
+    }
+
+    return {
+      isGlobalDiscountActive: parseBoolean(row.is_global_discount_active, false),
+      globalDiscountType: String(row.global_discount_type || 'percentage'),
+      globalDiscountValue: parseOptionalNumber(row.global_discount_value, 0),
+      minOrderAmount: parseOptionalNumber(row.min_order_amount, 0),
+    };
+  } catch (_error) {
+    return {
+      isGlobalDiscountActive: false,
+      globalDiscountType: 'percentage',
+      globalDiscountValue: 0,
+      minOrderAmount: 0,
+    };
+  }
+};
+
+const normalizeOrderDiscountForGlobalRules = (db, {
+  subtotal,
+  discountType,
+  discountValue,
+  isReturn = false,
+}) => {
+  if (isReturn) {
+    return {
+      discountType: null,
+      discountValue: 0,
+      discountAmount: 0,
+    };
+  }
+
+  const safeDiscountType = discountType || null;
+  const safeDiscountValue = parseOptionalNumber(discountValue, 0);
+
+  let effectiveDiscountType = safeDiscountType;
+  let effectiveDiscountValue = safeDiscountValue;
+
+  const settings = getGlobalDiscountSettings(db);
+  if (settings.isGlobalDiscountActive) {
+    const globalTypeForOrders = settings.globalDiscountType === 'percentage' ? 'percent' : 'fixed';
+    const matchesGlobalConfig =
+      safeDiscountType === globalTypeForOrders
+      && Math.abs(safeDiscountValue - settings.globalDiscountValue) < 0.0001;
+
+    if (matchesGlobalConfig && subtotal < settings.minOrderAmount) {
+      effectiveDiscountType = null;
+      effectiveDiscountValue = 0;
+    }
+  }
+
+  const discountAmount = calculateDiscountAmount(subtotal, effectiveDiscountType, effectiveDiscountValue);
+
+  return {
+    discountType: effectiveDiscountType,
+    discountValue: effectiveDiscountValue,
+    discountAmount,
+  };
+};
+
 const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantId, qty, soldUnitPrice, preferredBatchId = null }) => {
   // If preferredBatchId is given, that batch is sorted first; CASE returns NULL for null param -> falls back to FIFO.
   const getBatches = db.prepare(`
@@ -800,9 +880,9 @@ router.post('/', (req, res) => {
   }
 
   const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
-  const safeDiscountValue = safeIsReturn ? 0 : parseOptionalNumber(discount_value, 0);
   const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
-  const safeDiscountType = safeIsReturn ? null : discount_type;
+  const requestedDiscountValue = safeIsReturn ? 0 : parseOptionalNumber(discount_value, 0);
+  const requestedDiscountType = safeIsReturn ? null : (discount_type || null);
   let safeOriginalOrderId = null;
   try {
     safeOriginalOrderId = safeIsReturn ? parsePositiveInteger(original_order_id, 'original_order_id') : null;
@@ -827,7 +907,14 @@ router.post('/', (req, res) => {
     returnCreditTotal += returnItem.unit_price * returnItem.qty;
   }
 
-  const discountAmount = calculateDiscountAmount(subtotal, safeDiscountType, safeDiscountValue);
+  const normalizedDiscount = normalizeOrderDiscountForGlobalRules(db, {
+    subtotal,
+    discountType: requestedDiscountType,
+    discountValue: requestedDiscountValue,
+    isReturn: safeIsReturn,
+  });
+
+  const discountAmount = normalizedDiscount.discountAmount;
   const totalAmount = subtotal + safeAdditionalCharges - discountAmount - returnCreditTotal;
   const computedCreditApplied = safeIsReturn ? Math.max(totalAmount, 0) : 0;
 
@@ -878,8 +965,8 @@ router.post('/', (req, res) => {
       totalAmount,
       customer_name || null,
       safeTenderCash,
-      safeDiscountType,
-      safeDiscountValue,
+      normalizedDiscount.discountType,
+      normalizedDiscount.discountValue,
       status,
       safeIsCardPayment,
       orderBarcode,
@@ -1126,7 +1213,8 @@ router.put('/:id', (req, res) => {
   }
 
   const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
-  const safeDiscountValue = parseOptionalNumber(discount_value, 0);
+  const requestedDiscountValue = parseOptionalNumber(discount_value, 0);
+  const requestedDiscountType = discount_type || null;
   const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
   const safeIsCardPayment = is_card_payment === undefined ? null : (parseBoolean(is_card_payment, false) ? 1 : 0);
 
@@ -1135,7 +1223,13 @@ router.put('/:id', (req, res) => {
     subtotal += item.unit_price * item.qty;
   }
 
-  const discountAmount = calculateDiscountAmount(subtotal, discount_type, safeDiscountValue);
+  const normalizedDiscount = normalizeOrderDiscountForGlobalRules(db, {
+    subtotal,
+    discountType: requestedDiscountType,
+    discountValue: requestedDiscountValue,
+  });
+
+  const discountAmount = normalizedDiscount.discountAmount;
   const totalAmount = subtotal + safeAdditionalCharges - discountAmount;
 
   try {
@@ -1170,8 +1264,8 @@ router.put('/:id', (req, res) => {
         safeAdditionalCharges,
         totalAmount,
         customer_name,
-        discount_type,
-        safeDiscountValue,
+        normalizedDiscount.discountType,
+        normalizedDiscount.discountValue,
         resolvedStatus,
         resolvedTenderCash,
         resolvedIsCardPayment,

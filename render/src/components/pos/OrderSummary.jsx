@@ -82,6 +82,72 @@ const OrderSummary = () => {
   const dialogTotal = parseFloat(completedOrder?.total || 0) || 0;
   const dialogChange = paidAmount - dialogTotal;
 
+  const effectiveOrderDiscount = useMemo(() => {
+    if (currentOrder.isReturnOrder) {
+      return {
+        discountType: null,
+        discountValue: 0,
+        discountAmount: 0,
+        blockedByMinimum: false,
+        minimumOrderAmount: 0,
+      };
+    }
+
+    const safeSubtotal = parseFloat(currentOrder.subtotal || 0) || 0;
+    const safeDiscountType = discountType || null;
+    const safeDiscountValue = parseFloat(discountValue || 0) || 0;
+
+    if (!safeDiscountType || safeDiscountValue <= 0 || currentOrder.items.length === 0) {
+      return {
+        discountType: null,
+        discountValue: 0,
+        discountAmount: 0,
+        blockedByMinimum: false,
+        minimumOrderAmount: 0,
+      };
+    }
+
+    const roundToTwo = (value) => Math.round(value * 100) / 100;
+
+    if (globalDiscountSettings?.is_global_discount_active) {
+      const globalType = globalDiscountSettings.global_discount_type === 'percentage' ? 'percent' : 'fixed';
+      const globalValue = parseFloat(globalDiscountSettings.global_discount_value || 0) || 0;
+      const minimumOrderAmount = parseFloat(globalDiscountSettings.min_order_amount || 0) || 0;
+      const matchesGlobalConfig =
+        safeDiscountType === globalType
+        && Math.abs(safeDiscountValue - globalValue) < 0.0001;
+
+      if (matchesGlobalConfig && safeSubtotal < minimumOrderAmount) {
+        return {
+          discountType: null,
+          discountValue: 0,
+          discountAmount: 0,
+          blockedByMinimum: true,
+          minimumOrderAmount,
+        };
+      }
+    }
+
+    const computedAmount = safeDiscountType === 'percent'
+      ? roundToTwo((safeDiscountValue / 100) * safeSubtotal)
+      : roundToTwo(safeDiscountValue);
+
+    return {
+      discountType: safeDiscountType,
+      discountValue: safeDiscountValue,
+      discountAmount: computedAmount,
+      blockedByMinimum: false,
+      minimumOrderAmount: 0,
+    };
+  }, [
+    currentOrder.isReturnOrder,
+    currentOrder.items.length,
+    currentOrder.subtotal,
+    discountType,
+    discountValue,
+    globalDiscountSettings,
+  ]);
+
   useEffect(() => {
     api.globalDiscount.get().then((settings) => {
       setGlobalDiscountSettings(settings);
@@ -102,19 +168,29 @@ const OrderSummary = () => {
       return;
     }
 
-    if (globalDiscountSettings?.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0 && currentOrder.items.length > 0) {
+    if (globalDiscountSettings?.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0) {
       const gType = globalDiscountSettings.global_discount_type;
       const gValue = parseFloat(globalDiscountSettings.global_discount_value);
+      const minOrderAmount = parseFloat(globalDiscountSettings.min_order_amount || 0) || 0;
+      const hasItems = currentOrder.items.length > 0;
+      const meetsMinOrder = currentOrder.subtotal >= minOrderAmount;
       const uiType = gType === 'percentage' ? 'percent' : 'fixed';
-      if (discountType !== uiType || discountValue !== String(gValue)) {
+
+      if (discountType !== uiType) {
         setDiscountType(uiType);
+      }
+      if (discountValue !== String(gValue)) {
         setDiscountValue(String(gValue));
-        if (uiType === 'percent') {
-          const discountAmount = Math.round((gValue / 100) * currentOrder.subtotal * 100) / 100;
-          dispatch(setDiscount(discountAmount));
-        } else {
-          dispatch(setDiscount(Math.round(gValue * 100) / 100));
-        }
+      }
+
+      const computedDiscount = hasItems && meetsMinOrder
+        ? (uiType === 'percent'
+          ? Math.round((gValue / 100) * currentOrder.subtotal * 100) / 100
+          : Math.round(gValue * 100) / 100)
+        : 0;
+
+      if (Math.abs((parseFloat(currentOrder.discount) || 0) - computedDiscount) > 0.001) {
+        dispatch(setDiscount(computedDiscount));
       }
     }
   }, [currentOrder.isReturnOrder, currentOrder.discount, globalDiscountSettings, currentOrder.items.length, currentOrder.subtotal, discountType, discountValue, dispatch]);
@@ -223,8 +299,8 @@ const OrderSummary = () => {
         additional_charges: currentOrder.additionalCharges,
         customer_name: currentOrder.customerName,
         tender_cash: parseFloat(amountPaid) || currentOrder.total,
-        discount_type: discountType,
-        discount_value: parseFloat(discountValue) || 0,
+        discount_type: effectiveOrderDiscount.discountType,
+        discount_value: effectiveOrderDiscount.discountValue,
         status: currentOrder.originalStatus || 'completed',
       };
 
@@ -267,8 +343,8 @@ const OrderSummary = () => {
           additional_charges: currentOrder.additionalCharges,
           customer_name: currentOrder.customerName,
           tender_cash: tenderCash,
-          discount_type: discountType,
-          discount_value: parseFloat(discountValue) || 0,
+          discount_type: effectiveOrderDiscount.discountType,
+          discount_value: effectiveOrderDiscount.discountValue,
           status: 'completed',
         };
 
@@ -297,8 +373,8 @@ const OrderSummary = () => {
               additional_charges: currentOrder.additionalCharges,
               customer_name: currentOrder.customerName,
               tender_cash: tenderCash,
-              discount_type: discountType,
-              discount_value: parseFloat(discountValue) || 0,
+              discount_type: effectiveOrderDiscount.discountType,
+              discount_value: effectiveOrderDiscount.discountValue,
               status: 'completed',
             };
 
@@ -314,8 +390,8 @@ const OrderSummary = () => {
         id: result.id,
         barcode: result.barcode || currentOrder.barcode || null,
         total: currentOrder.total,
-        discount_type: currentOrder.isReturnOrder ? null : discountType,
-        discount_value: currentOrder.isReturnOrder ? 0 : (parseFloat(discountValue) || 0),
+        discount_type: currentOrder.isReturnOrder ? null : effectiveOrderDiscount.discountType,
+        discount_value: currentOrder.isReturnOrder ? 0 : effectiveOrderDiscount.discountValue,
         paymentMethod,
         amountPaid: tenderCash,
         tender_cash: tenderCash,
@@ -349,8 +425,8 @@ const OrderSummary = () => {
       items: mapOrderItems(currentOrder.items),
       additional_charges: currentOrder.additionalCharges,
       customer_name: customerName || null,
-      discount_type: discountType,
-      discount_value: parseFloat(discountValue) || 0,
+      discount_type: effectiveOrderDiscount.discountType,
+      discount_value: effectiveOrderDiscount.discountValue,
       status: 'active',
     };
 
@@ -758,6 +834,12 @@ const OrderSummary = () => {
                       </Box>
                     </Box>
                   </Box>
+                )}
+
+                {!currentOrder.isReturnOrder && effectiveOrderDiscount.blockedByMinimum && (
+                  <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 2 }}>
+                    Global discount applies only for orders above {formatPrice(effectiveOrderDiscount.minimumOrderAmount)}.
+                  </Typography>
                 )}
 
                 {currentOrder.isReturnOrder && (

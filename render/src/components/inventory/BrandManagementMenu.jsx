@@ -26,6 +26,7 @@ import {
   Select,
   MenuItem,
   FormControlLabel,
+  Checkbox,
   Switch,
   Alert,
 } from '@mui/material';
@@ -45,6 +46,7 @@ const BrandManagementMenu = () => {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [showDiscountedOnly, setShowDiscountedOnly] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [brandDialog, setBrandDialog] = useState(false);
@@ -158,20 +160,38 @@ const BrandManagementMenu = () => {
           </Button>
         </Box>
 
-        <TextField
-          placeholder="Search brands..."
-          value={searchText}
-          onChange={(e) => { setSearchText(e.target.value); setPage(0); }}
-          size="small"
-          sx={{ mb: 2, width: 280 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
+        <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
+          <TextField
+            placeholder="Search brands..."
+            value={searchText}
+            onChange={(e) => { setSearchText(e.target.value); setPage(0); }}
+            size="small"
+            sx={{ width: 280 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={showDiscountedOnly}
+                onChange={(e) => {
+                  setShowDiscountedOnly(e.target.checked);
+                  setPage(0);
+                }}
+                size="small"
+              />
+            }
+            label="Show discounted brands only"
+            sx={{ m: 0 }}
+          />
+        </Box>
+
         {loading && !brandDialog ? (
           <Box display="flex" justifyContent="center" p={3}>
             <CircularProgress />
@@ -186,10 +206,17 @@ const BrandManagementMenu = () => {
             </Typography>
           </Box>
         ) : (() => {
-          const filtered = brands.filter(b =>
-            b.brand_name.toLowerCase().includes(searchText.toLowerCase()) ||
-            (b.description || '').toLowerCase().includes(searchText.toLowerCase())
-          );
+          const normalizedSearch = searchText.trim().toLowerCase();
+          const filtered = brands.filter((b) => {
+            const matchesSearch =
+              b.brand_name.toLowerCase().includes(normalizedSearch) ||
+              (b.description || '').toLowerCase().includes(normalizedSearch);
+
+            const hasActiveDiscount = !!b.is_discount_active && (parseFloat(b.discount_value || 0) > 0);
+            const matchesDiscountFilter = !showDiscountedOnly || hasActiveDiscount;
+
+            return matchesSearch && matchesDiscountFilter;
+          });
           const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
           return (
             <>
@@ -230,7 +257,7 @@ const BrandManagementMenu = () => {
                 ))}
                 {filtered.length === 0 && (
                   <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
-                    No brands found
+                    {showDiscountedOnly ? 'No discounted brands found' : 'No brands found'}
                   </Typography>
                 )}
               </List>
