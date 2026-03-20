@@ -156,39 +156,25 @@ const runMigrations = () => {
       console.log('Migration v1.6 completed successfully - stock_batch sell_price enabled');
     }
 
-    // Migration v1.7: Persist exact per-batch allocations for each order line
+    // Migration v1.7: Persist per-batch allocations for each order line
     const addOrderBatchAllocationMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.7_add_order_batch_allocations');
 
     if (!addOrderBatchAllocationMigration) {
-      console.log('Running migration v1.7: Creating item_variant_order_batch allocation table...');
+      console.log('Running migration v1.7: Creating order_item_batch_allocation table...');
       db.exec(`
-        CREATE TABLE IF NOT EXISTS item_variant_order_batch (
+        CREATE TABLE IF NOT EXISTS order_item_batch_allocation (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          order_item_id INTEGER NOT NULL,
-          order_id INTEGER NOT NULL,
-          item_variant_id INTEGER NOT NULL,
+          item_variant_order_id INTEGER NOT NULL,
           stock_batch_id INTEGER NOT NULL,
-          qty INTEGER NOT NULL,
-          batch_buy_price DECIMAL(10,2) NOT NULL,
-          batch_sell_price DECIMAL(10,2) NOT NULL,
-          sold_unit_price DECIMAL(10,2) NOT NULL,
+          qty_allocated INTEGER NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (order_item_id) REFERENCES item_variant_order(id),
-          FOREIGN KEY (order_id) REFERENCES orders(id),
-          FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+          FOREIGN KEY (item_variant_order_id) REFERENCES item_variant_order(id),
           FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
         );
       `);
 
-      const allocationTableInfo = db.pragma('table_info(item_variant_order_batch)');
-      const hasSoldUnitPrice = allocationTableInfo.some(column => column.name === 'sold_unit_price');
-
-      if (!hasSoldUnitPrice) {
-        db.exec('ALTER TABLE item_variant_order_batch ADD COLUMN sold_unit_price DECIMAL(10,2) NOT NULL DEFAULT 0;');
-      }
-
       db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.7_add_order_batch_allocations');
-      console.log('Migration v1.7 completed successfully - order batch allocations enabled');
+      console.log('Migration v1.7 completed successfully - order_item_batch_allocation enabled');
     }
 
     // Migration v1.2: Remove stock_batch_id column
@@ -233,6 +219,178 @@ const runMigrations = () => {
       
       // Mark migration as completed
       db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.2_remove_stock_batch_id');
+    }
+
+    // Migration v1.8: Add return order fields to orders table
+    const addReturnOrderFieldsMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.8_add_return_order_fields');
+
+    if (!addReturnOrderFieldsMigration) {
+      const ordersTableInfo = db.pragma('table_info(orders)');
+      const hasBarcode = ordersTableInfo.some(column => column.name === 'barcode');
+      const hasIsReturn = ordersTableInfo.some(column => column.name === 'is_return');
+      const hasOriginalOrderId = ordersTableInfo.some(column => column.name === 'original_order_id');
+      const hasCreditApplied = ordersTableInfo.some(column => column.name === 'credit_applied');
+      const hasCreditReason = ordersTableInfo.some(column => column.name === 'credit_reason');
+
+      if (!hasBarcode) {
+        // SQLite does not allow adding a UNIQUE column via ALTER TABLE.
+        db.exec('ALTER TABLE orders ADD COLUMN barcode TEXT;');
+      }
+      if (!hasIsReturn) {
+        db.exec('ALTER TABLE orders ADD COLUMN is_return BOOLEAN DEFAULT 0;');
+      }
+      if (!hasOriginalOrderId) {
+        db.exec('ALTER TABLE orders ADD COLUMN original_order_id INTEGER;');
+      }
+      if (!hasCreditApplied) {
+        db.exec('ALTER TABLE orders ADD COLUMN credit_applied DECIMAL(10,2) DEFAULT 0;');
+      }
+      if (!hasCreditReason) {
+        db.exec('ALTER TABLE orders ADD COLUMN credit_reason TEXT;');
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.8_add_return_order_fields');
+      console.log('Migration v1.8 completed successfully - return order fields added');
+    }
+
+    // Migration v1.9: Add is_returned field to stock_batch table
+    const addIsReturnedMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.9_add_is_returned_to_stock_batch');
+
+    if (!addIsReturnedMigration) {
+      const stockBatchInfo = db.pragma('table_info(stock_batch)');
+      const hasIsReturned = stockBatchInfo.some(column => column.name === 'is_returned');
+
+      if (!hasIsReturned) {
+        db.exec('ALTER TABLE stock_batch ADD COLUMN is_returned BOOLEAN DEFAULT 0;');
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.9_add_is_returned_to_stock_batch');
+      console.log('Migration v1.9 completed successfully - is_returned field added');
+    }
+
+    // Migration v1.10 is intentionally marked as applied (legacy order_image table removed by v1.11).
+    const markLegacyOrderImageMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.10_create_order_image_table');
+    if (!markLegacyOrderImageMigration) {
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.10_create_order_image_table');
+    }
+
+    // Migration v1.11: Ensure order_item_batch_allocation table exists and backfill from legacy table.
+    const createOrderItemBatchAllocationMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.11_create_order_item_batch_allocation');
+
+    if (!createOrderItemBatchAllocationMigration) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS order_item_batch_allocation (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          item_variant_order_id INTEGER NOT NULL,
+          stock_batch_id INTEGER NOT NULL,
+          qty_allocated INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (item_variant_order_id) REFERENCES item_variant_order(id),
+          FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
+        );
+      `);
+
+      db.exec('CREATE INDEX IF NOT EXISTS idx_oiba_order_item ON order_item_batch_allocation(item_variant_order_id);');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_oiba_batch ON order_item_batch_allocation(stock_batch_id);');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_oiba_created ON order_item_batch_allocation(created_at);');
+
+      const legacyAllocationTableExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('item_variant_order_batch');
+
+      const newAllocationCount = db.prepare('SELECT COUNT(*) as count FROM order_item_batch_allocation').get();
+
+      if (legacyAllocationTableExists && parseInt(newAllocationCount.count, 10) === 0) {
+        db.exec(`
+          INSERT INTO order_item_batch_allocation (item_variant_order_id, stock_batch_id, qty_allocated, created_at)
+          SELECT
+            order_item_id,
+            stock_batch_id,
+            qty,
+            COALESCE(created_at, CURRENT_TIMESTAMP)
+          FROM item_variant_order_batch
+        `);
+      }
+
+      const orderImageTableExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('order_image');
+
+      if (orderImageTableExists) {
+        db.exec('DROP TABLE order_image;');
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.11_create_order_item_batch_allocation');
+      console.log('Migration v1.11 completed successfully - order_item_batch_allocation ready');
+    }
+
+    // Migration v1.12: Allow multiple order lines for same variant (different batch/price selections).
+    const allowDuplicateVariantRowsMigration = db.prepare('SELECT version FROM schema_migrations WHERE version = ?').get('v1.12_allow_duplicate_variant_rows');
+
+    if (!allowDuplicateVariantRowsMigration) {
+      const tableDefinition = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get('item_variant_order');
+
+      const hasLegacyUniqueConstraint = !!(tableDefinition && tableDefinition.sql && /UNIQUE\s*\(\s*item_variant_id\s*,\s*order_id\s*\)/i.test(tableDefinition.sql));
+
+      if (hasLegacyUniqueConstraint) {
+        db.exec('PRAGMA foreign_keys = OFF;');
+        try {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS item_variant_order_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              item_variant_id INTEGER NOT NULL,
+              order_id INTEGER NOT NULL,
+              qty INTEGER NOT NULL,
+              unit_price DECIMAL(10,2) NOT NULL,
+              discount_source TEXT,
+              discount_type TEXT,
+              discount_value DECIMAL(10,2) DEFAULT 0,
+              discount_amount DECIMAL(10,2) DEFAULT 0,
+              original_price DECIMAL(10,2),
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+              FOREIGN KEY (order_id) REFERENCES orders(id)
+            );
+
+            INSERT INTO item_variant_order_new (
+              id,
+              item_variant_id,
+              order_id,
+              qty,
+              unit_price,
+              discount_source,
+              discount_type,
+              discount_value,
+              discount_amount,
+              original_price,
+              created_at
+            )
+            SELECT
+              id,
+              item_variant_id,
+              order_id,
+              qty,
+              unit_price,
+              discount_source,
+              discount_type,
+              discount_value,
+              discount_amount,
+              original_price,
+              created_at
+            FROM item_variant_order;
+
+            DROP TABLE item_variant_order;
+            ALTER TABLE item_variant_order_new RENAME TO item_variant_order;
+          `);
+        } finally {
+          db.exec('PRAGMA foreign_keys = ON;');
+        }
+      }
+
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run('v1.12_allow_duplicate_variant_rows');
+      console.log('Migration v1.12 completed successfully - duplicate variant rows allowed in item_variant_order');
     }
 
   } catch (error) {
@@ -359,7 +517,13 @@ const createTables = () => {
       discount_type TEXT CHECK(discount_type IN ('fixed', 'percent')),
       discount_value DECIMAL(10,2) DEFAULT 0,
       is_card_payment BOOLEAN DEFAULT 0,
-      FOREIGN KEY (staff_id) REFERENCES staff(id)
+      barcode TEXT UNIQUE,
+      is_return BOOLEAN DEFAULT 0,
+      original_order_id INTEGER,
+      credit_applied DECIMAL(10,2) DEFAULT 0,
+      credit_reason TEXT,
+      FOREIGN KEY (staff_id) REFERENCES staff(id),
+      FOREIGN KEY (original_order_id) REFERENCES orders(id)
     )
   `);
 
@@ -371,29 +535,26 @@ const createTables = () => {
       order_id INTEGER NOT NULL,
       qty INTEGER NOT NULL,
       unit_price DECIMAL(10,2) NOT NULL,
+      discount_source TEXT,
+      discount_type TEXT,
+      discount_value DECIMAL(10,2) DEFAULT 0,
+      discount_amount DECIMAL(10,2) DEFAULT 0,
+      original_price DECIMAL(10,2),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(item_variant_id, order_id),
       FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
       FOREIGN KEY (order_id) REFERENCES orders(id)
     )
   `);
 
-  // Item Variant Order Batch Allocation table
+  // Order Item Batch Allocation table
   db.exec(`
-    CREATE TABLE IF NOT EXISTS item_variant_order_batch (
+    CREATE TABLE IF NOT EXISTS order_item_batch_allocation (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_item_id INTEGER NOT NULL,
-      order_id INTEGER NOT NULL,
-      item_variant_id INTEGER NOT NULL,
+      item_variant_order_id INTEGER NOT NULL,
       stock_batch_id INTEGER NOT NULL,
-      qty INTEGER NOT NULL,
-      batch_buy_price DECIMAL(10,2) NOT NULL,
-      batch_sell_price DECIMAL(10,2) NOT NULL,
-      sold_unit_price DECIMAL(10,2) NOT NULL,
+      qty_allocated INTEGER NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (order_item_id) REFERENCES item_variant_order(id),
-      FOREIGN KEY (order_id) REFERENCES orders(id),
-      FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
+      FOREIGN KEY (item_variant_order_id) REFERENCES item_variant_order(id),
       FOREIGN KEY (stock_batch_id) REFERENCES stock_batch(id)
     )
   `);
@@ -449,6 +610,7 @@ const createTables = () => {
       expire_date DATE,
       supplier_id INTEGER,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_returned BOOLEAN DEFAULT 0,
       FOREIGN KEY (item_variant_id) REFERENCES item_variant(id),
       FOREIGN KEY (supplier_id) REFERENCES supplier(id)
     )
@@ -473,13 +635,9 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_orders_staff ON orders(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_order ON item_variant_order(order_id)',
     'CREATE INDEX IF NOT EXISTS idx_item_variant_order_variant ON item_variant_order(item_variant_id)',
-    'CREATE INDEX IF NOT EXISTS idx_iobo_order_item ON item_variant_order_batch(order_item_id)',
-    'CREATE INDEX IF NOT EXISTS idx_iobo_order ON item_variant_order_batch(order_id)',
-    'CREATE INDEX IF NOT EXISTS idx_iobo_variant ON item_variant_order_batch(item_variant_id)',
-    'CREATE INDEX IF NOT EXISTS idx_iobo_batch ON item_variant_order_batch(stock_batch_id)',
-    'CREATE INDEX IF NOT EXISTS idx_iobo_order_variant ON item_variant_order_batch(order_id, item_variant_id)',
-    'CREATE INDEX IF NOT EXISTS idx_sell_price_variant ON sell_price_history(item_variant_id)',
-    'CREATE INDEX IF NOT EXISTS idx_sell_price_created ON sell_price_history(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_oiba_order_item ON order_item_batch_allocation(item_variant_order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_oiba_batch ON order_item_batch_allocation(stock_batch_id)',
+    'CREATE INDEX IF NOT EXISTS idx_oiba_created ON order_item_batch_allocation(created_at)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_staff ON cashier_shift(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_status ON cashier_shift(status)',
     'CREATE INDEX IF NOT EXISTS idx_cashier_shift_open_at ON cashier_shift(open_at)',
@@ -489,9 +647,23 @@ const createIndexes = () => {
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant_created ON stock_batch(item_variant_id, created_at DESC, id DESC)',
     // Composite indexes for frequent JOIN + aggregate patterns
     'CREATE INDEX IF NOT EXISTS idx_stock_batch_variant_remaining ON stock_batch(item_variant_id, remaining_qty)',
-    'CREATE INDEX IF NOT EXISTS idx_sell_price_variant_id_desc ON sell_price_history(item_variant_id, id DESC)',
-    'CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, date)'
+    'CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, date)',
+    // Return order related indexes
+    'CREATE INDEX IF NOT EXISTS idx_orders_barcode ON orders(barcode)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_is_return ON orders(is_return)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_original_order ON orders(original_order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_batch_is_returned ON stock_batch(is_returned)'
   ];
+
+  const hasSellPriceHistoryTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get('sell_price_history');
+
+  if (hasSellPriceHistoryTable) {
+    indexes.push('CREATE INDEX IF NOT EXISTS idx_sell_price_variant ON sell_price_history(item_variant_id)');
+    indexes.push('CREATE INDEX IF NOT EXISTS idx_sell_price_created ON sell_price_history(created_at)');
+    indexes.push('CREATE INDEX IF NOT EXISTS idx_sell_price_variant_id_desc ON sell_price_history(item_variant_id, id DESC)');
+  }
 
   indexes.forEach(index => {
     db.exec(index);
@@ -836,6 +1008,32 @@ const getDatabase = () => {
   return db;
 };
 
+const generateUniqueBarcode = () => {
+  const buildRandomBarcode = () => Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+  const fallbackBarcode = buildRandomBarcode();
+
+  if (!db) {
+    return fallbackBarcode;
+  }
+
+  try {
+    const checkBarcode = db.prepare('SELECT id FROM orders WHERE barcode = ? LIMIT 1');
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = buildRandomBarcode();
+
+      const existing = checkBarcode.get(candidate);
+      if (!existing) {
+        return candidate;
+      }
+    }
+  } catch (error) {
+    return fallbackBarcode;
+  }
+
+  return fallbackBarcode;
+};
+
 // Manual backup function (call when needed)
 const backupDatabase = () => {
   if (!db) return null;
@@ -861,5 +1059,6 @@ module.exports = {
   getDatabase,
   closeDatabase,
   backupDatabase,
-  getCurrentUTCTimestamp
+  getCurrentUTCTimestamp,
+  generateUniqueBarcode,
 };

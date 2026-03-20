@@ -1,37 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  IconButton,
+  InputLabel,
   List,
   ListItem,
   ListItemText,
-  IconButton,
-  Button,
-  Divider,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
   MenuItem,
-  Chip,
-  Alert,
+  Select,
+  TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import {
   Add,
   Remove,
   Delete,
   Payment,
-  Print,
   Person,
-  TableRestaurant,
   Receipt,
   ShoppingCart,
   Refresh,
@@ -45,17 +43,13 @@ import {
   resetItemDiscount,
   updateItemDiscount,
   setAdditionalCharges,
-  setCustomerInfo,
   clearCurrentOrder,
   createOrder,
   updateOrder,
-  updateOrderStatus,
   fetchActiveOrders,
+  setReturnReason,
 } from '../../store/slices/orderSlice';
-import { openModal, closeModal } from '../../store/slices/uiSlice';
 import { fetchItemVariants } from '../../store/slices/inventorySlice';
-import { setActiveShift } from '../../store/slices/authSlice';
-import { cashierShiftAPI } from '../../services/api';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
@@ -64,7 +58,6 @@ import SetActiveDialog from './SetActiveDialog';
 const OrderSummary = () => {
   const dispatch = useDispatch();
   const { currentOrder, loading } = useSelector((state) => state.order);
-  const { modals } = useSelector((state) => state.ui);
   const { user, activeShift } = useSelector((state) => state.auth);
 
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -79,17 +72,37 @@ const OrderSummary = () => {
   const [editDiscountValue, setEditDiscountValue] = useState('');
   const [globalDiscountSettings, setGlobalDiscountSettings] = useState(null);
 
-  // Fetch global discount settings
+  const hasReturnItems = currentOrder.isReturnOrder && (currentOrder.returnedItems || []).length > 0;
+  const hasOrderContent = currentOrder.items.length > 0 || hasReturnItems;
+  const requiresCashTender = currentOrder.total > 0;
+  const paidAmount = parseFloat(amountPaid || 0) || 0;
+  const change = paidAmount - currentOrder.total;
+
+  const dialogTotal = parseFloat(completedOrder?.total || 0) || 0;
+  const dialogChange = paidAmount - dialogTotal;
+
   useEffect(() => {
-    api.globalDiscount.get().then(settings => {
+    api.globalDiscount.get().then((settings) => {
       setGlobalDiscountSettings(settings);
     }).catch(() => {});
   }, []);
 
-  // Auto-apply global discount when active and items exist
   useEffect(() => {
+    if (currentOrder.isReturnOrder) {
+      if (discountType !== 'fixed') {
+        setDiscountType('fixed');
+      }
+      if (discountValue !== '') {
+        setDiscountValue('');
+      }
+      if (currentOrder.discount !== 0) {
+        dispatch(setDiscount(0));
+      }
+      return;
+    }
+
     if (globalDiscountSettings?.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0 && currentOrder.items.length > 0) {
-      const gType = globalDiscountSettings.global_discount_type; // 'percentage' or 'fixed'
+      const gType = globalDiscountSettings.global_discount_type;
       const gValue = parseFloat(globalDiscountSettings.global_discount_value);
       const uiType = gType === 'percentage' ? 'percent' : 'fixed';
       if (discountType !== uiType || discountValue !== String(gValue)) {
@@ -103,45 +116,87 @@ const OrderSummary = () => {
         }
       }
     }
-  }, [globalDiscountSettings, currentOrder.items.length, currentOrder.subtotal]);
+  }, [currentOrder.isReturnOrder, currentOrder.discount, globalDiscountSettings, currentOrder.items.length, currentOrder.subtotal, discountType, discountValue, dispatch]);
 
-  // Clear local states when starting a new order
   useEffect(() => {
-    if (!paymentDialog && currentOrder.items.length === 0 && !currentOrder.id) {
+    if (!paymentDialog && currentOrder.items.length === 0 && !hasReturnItems && !currentOrder.id) {
       setDiscountType('fixed');
       setDiscountValue('');
       setAmountPaid('');
     }
-  }, [currentOrder.items.length, currentOrder.id, paymentDialog]);
+  }, [currentOrder.items.length, currentOrder.id, hasReturnItems, paymentDialog]);
 
   const formatPrice = (price) => {
-    // Only check for NaN after parseFloat to handle string numbers correctly
     const parsedPrice = parseFloat(price);
-    return `Rs. ${isNaN(parsedPrice) ? '0.00' : parsedPrice.toFixed(2)}`;
+    return `Rs. ${Number.isFinite(parsedPrice) ? parsedPrice.toFixed(2) : '0.00'}`;
   };
 
-  // Helper function to map order items for API
-  const mapOrderItems = (items) => items.map(item => ({
+  const mapOrderItems = (items) => items.map((item) => ({
     item_variant_id: item.itemVariantId,
     qty: item.quantity,
     unit_price: item.price,
     original_price: item.originalPrice || item.price,
-    discount_source: item.discountSource || null,
-    discount_type: item.discountType || null,
-    discount_value: item.discountValue || 0,
-    discount_amount: item.discountAmount || 0,
+    discount_source: currentOrder.isReturnOrder ? null : (item.discountSource || null),
+    discount_type: currentOrder.isReturnOrder ? null : (item.discountType || null),
+    discount_value: currentOrder.isReturnOrder ? 0 : (item.discountValue || 0),
+    discount_amount: currentOrder.isReturnOrder ? 0 : (item.discountAmount || 0),
     preferred_batch_id: item.preferredBatchId || null,
   }));
 
-  const handleQuantityChange = (itemVariantId, newQuantity) => {
+  const mapReturnItems = (returnedItems) => returnedItems.map((item) => ({
+    source_order_item_id: item.source_order_item_id || null,
+    item_variant_id: item.item_variant_id,
+    qty: item.qty,
+    unit_price: item.unit_price,
+    original_price: item.original_price || item.unit_price,
+    batch_allocations: Array.isArray(item.batch_allocations) ? item.batch_allocations : [],
+  }));
+
+  const resetOrderUiState = () => {
+    setDiscountType('fixed');
+    setDiscountValue('');
+    setAmountPaid('');
+    setEditDiscountItem(null);
+    setEditDiscountValue('');
+    setCompletedOrder(null);
+  };
+
+  const handleQuantityChange = (item, newQuantity) => {
+    const lineKey = item.lineKey;
+
     if (newQuantity <= 0) {
-      dispatch(removeItemFromOrder(itemVariantId));
+      dispatch(removeItemFromOrder(lineKey));
     } else {
-      dispatch(updateItemQuantity({ itemVariantId, quantity: newQuantity }));
+      const otherVariantQty = currentOrder.items
+        .filter((orderItem) => orderItem.itemVariantId === item.itemVariantId && orderItem.lineKey !== lineKey)
+        .reduce((sum, orderItem) => sum + (parseFloat(orderItem.quantity || 0) || 0), 0);
+
+      const maxByVariant = item.maxVariantStock !== null && item.maxVariantStock !== undefined
+        ? Math.max(0, item.maxVariantStock - otherVariantQty)
+        : Number.POSITIVE_INFINITY;
+
+      const maxByBatch = item.preferredBatchId && item.maxBatchQty !== null && item.maxBatchQty !== undefined
+        ? item.maxBatchQty
+        : Number.POSITIVE_INFINITY;
+
+      const maxAllowed = Math.floor(Math.min(maxByVariant, maxByBatch));
+
+      if (Number.isFinite(maxAllowed) && newQuantity > maxAllowed) {
+        const scope = item.preferredBatchId ? 'in the selected batch' : 'in stock';
+        toast.error(`Only ${maxAllowed} available ${scope}`);
+        return;
+      }
+
+      dispatch(updateItemQuantity({ lineKey, quantity: newQuantity }));
     }
   };
 
   const handleUpdateOrder = async () => {
+    if (currentOrder.isReturnOrder) {
+      toast.error('Return orders cannot be edited. Please create a new return order.');
+      return;
+    }
+
     if (currentOrder.items.length === 0) {
       toast.error('Order must have at least one item');
       return;
@@ -156,101 +211,122 @@ const OrderSummary = () => {
         tender_cash: parseFloat(amountPaid) || currentOrder.total,
         discount_type: discountType,
         discount_value: parseFloat(discountValue) || 0,
-        status: currentOrder.originalStatus || 'completed' // Maintain original status
+        status: currentOrder.originalStatus || 'completed',
       };
 
       await dispatch(updateOrder({ orderId: currentOrder.id, orderData })).unwrap();
       toast.success(`Order #${currentOrder.id} updated successfully!`);
-      
-      // Refresh item variants to update quantities
+
       dispatch(fetchItemVariants());
       dispatch(fetchActiveOrders());
-      
-      // Clear the order
       dispatch(clearCurrentOrder());
-      setDiscountType('fixed');
-      setDiscountValue('');
-      setAmountPaid('');
-      
+      resetOrderUiState();
     } catch (error) {
-      console.error('Update order error:', error);
-      toast.error('Failed to update order: ' + error.message);
+      toast.error(`Failed to update order: ${error.message}`);
     }
   };
 
   const handlePlaceOrder = async () => {
-    if (currentOrder.items.length === 0) return;
+    if (!hasOrderContent) {
+      return;
+    }
+
+    if (requiresCashTender && (!amountPaid || change < 0)) {
+      toast.error('Enter a valid tendered amount');
+      return;
+    }
+
+    if (currentOrder.isReturnOrder && !currentOrder.originalOrderId) {
+      toast.error('Return order must be linked to an original order');
+      return;
+    }
 
     try {
       let result;
-      
-      // If we're completing an existing active order
-      if (currentOrder.id) {
-        // Update the order with current items and status to completed
+      const tenderCash = requiresCashTender ? parseFloat(amountPaid || 0) : 0;
+
+      if (currentOrder.id && !currentOrder.isReturnOrder) {
         const orderData = {
           staff_id: user.id,
           items: mapOrderItems(currentOrder.items),
           additional_charges: currentOrder.additionalCharges,
           customer_name: currentOrder.customerName,
-          tender_cash: parseFloat(amountPaid),
+          tender_cash: tenderCash,
           discount_type: discountType,
           discount_value: parseFloat(discountValue) || 0,
-          status: 'completed'
+          status: 'completed',
         };
 
         result = await dispatch(updateOrder({ orderId: currentOrder.id, orderData })).unwrap();
         toast.success(`Order #${currentOrder.id} completed`);
       } else {
-        // Create a new completed order
-        const orderData = {
-          staff_id: user.id,
-          items: mapOrderItems(currentOrder.items),
-          additional_charges: currentOrder.additionalCharges,
-          customer_name: currentOrder.customerName,
-          tender_cash: parseFloat(amountPaid),
-          discount_type: discountType,
-          discount_value: parseFloat(discountValue) || 0,
-          status: 'completed'
-        };
+        const orderData = currentOrder.isReturnOrder
+          ? {
+              staff_id: user.id,
+              items: mapOrderItems(currentOrder.items),
+              return_items: mapReturnItems(currentOrder.returnedItems || []),
+              additional_charges: currentOrder.additionalCharges,
+              customer_name: currentOrder.customerName,
+              tender_cash: tenderCash,
+              discount_type: null,
+              discount_value: 0,
+              status: 'completed',
+              is_return: true,
+              original_order_id: currentOrder.originalOrderId,
+              credit_reason: currentOrder.returnReason || null,
+              credit_applied: Math.max(currentOrder.total, 0),
+            }
+          : {
+              staff_id: user.id,
+              items: mapOrderItems(currentOrder.items),
+              additional_charges: currentOrder.additionalCharges,
+              customer_name: currentOrder.customerName,
+              tender_cash: tenderCash,
+              discount_type: discountType,
+              discount_value: parseFloat(discountValue) || 0,
+              status: 'completed',
+            };
 
         result = await dispatch(createOrder(orderData)).unwrap();
       }
-      
-      // Refresh item variants to update quantities in POS interface
+
       dispatch(fetchItemVariants());
-      
-      // Store the completed order for printing
+      dispatch(fetchActiveOrders());
+
       setCompletedOrder({
         ...currentOrder,
         id: result.id,
-        discount_type: discountType,
-        discount_value: parseFloat(discountValue) || 0,
-        paymentMethod: paymentMethod,
-        amountPaid: parseFloat(amountPaid),
-        tender_cash: parseFloat(amountPaid),
-        cashier: user?.name || 'System'
+        barcode: result.barcode || currentOrder.barcode || null,
+        total: currentOrder.total,
+        discount_type: currentOrder.isReturnOrder ? null : discountType,
+        discount_value: currentOrder.isReturnOrder ? 0 : (parseFloat(discountValue) || 0),
+        paymentMethod,
+        amountPaid: tenderCash,
+        tender_cash: tenderCash,
+        cashier: user?.name || 'System',
+        is_return: currentOrder.isReturnOrder,
       });
-      
-      // Set amountPaid for the dialog
-      setAmountPaid(amountPaid);
-      
-      // Clear the current order immediately after placing
+
+      if (!requiresCashTender) {
+        setAmountPaid('0');
+      }
+
       dispatch(clearCurrentOrder());
-      
-      // Batch refresh operations for better performance
-      dispatch(fetchActiveOrders());
-      dispatch(fetchItemVariants());
-      
-      // Show payment dialog
       setPaymentDialog(true);
     } catch (error) {
-      console.error('Place order error:', error);
-      toast.error('Failed to complete order');
+      toast.error(`Failed to complete order: ${error.message}`);
     }
   };
 
   const handleSetAsActive = async ({ customerName }) => {
-    if (currentOrder.items.length === 0) return;
+    if (currentOrder.isReturnOrder) {
+      toast.error('Return orders must be completed directly. Active mode is disabled.');
+      return;
+    }
+
+    if (currentOrder.items.length === 0) {
+      return;
+    }
 
     const orderData = {
       staff_id: user.id,
@@ -259,111 +335,96 @@ const OrderSummary = () => {
       customer_name: customerName || null,
       discount_type: discountType,
       discount_value: parseFloat(discountValue) || 0,
-      status: 'active'
+      status: 'active',
     };
 
     try {
-      let result;
-      
-      // If we're updating an existing active order
       if (currentOrder.id) {
-        // Update the existing order
-        result = await dispatch(updateOrder({ orderId: currentOrder.id, orderData })).unwrap();
+        await dispatch(updateOrder({ orderId: currentOrder.id, orderData })).unwrap();
         toast.success(`Order #${currentOrder.id} updated`);
       } else {
-        // Create a new active order
-        result = await dispatch(createOrder(orderData)).unwrap();
+        const result = await dispatch(createOrder(orderData)).unwrap();
         toast.success(`Order #${result.id} set as active`);
       }
-      
+
       dispatch(clearCurrentOrder());
-      // Refresh item variants to update quantities in POS interface
       dispatch(fetchItemVariants());
-      // Refresh active orders list after creating/updating active order
       dispatch(fetchActiveOrders());
-      setDiscountType('fixed');
-      setDiscountValue('');
-      setAmountPaid('');
+      resetOrderUiState();
       setSetActiveDialogOpen(false);
     } catch (error) {
-      console.error('Failed to save active order:', error);
-      toast.error('Failed to set order as active');
+      toast.error(`Failed to set order as active: ${error.message}`);
     }
   };
 
   const handlePaymentConfirm = async () => {
     try {
-      // Print bill with proper store info
       const storeInfo = {
         name: 'Super Glow',
         address: 'Ganemulla',
         phone: '071 160 0925',
         receiptFooter: 'Thank you Come Again..!',
-        currencySymbol: 'Rs'
+        currencySymbol: 'Rs',
       };
 
       const orderData = completedOrder || {
         ...currentOrder,
         id: Date.now(),
-        paymentMethod: paymentMethod || 'cash',
+        paymentMethod,
         amountPaid: parseFloat(amountPaid) || currentOrder.total,
         cashier: user?.name || 'System',
-        tender_cash: parseFloat(amountPaid) || currentOrder.total
+        tender_cash: parseFloat(amountPaid) || currentOrder.total,
       };
 
-      // Try direct thermal printing first, fall back to browser print
       const savedPrinter = localStorage.getItem('selectedPrinter');
       let billResult;
-      
+
       if (savedPrinter && window.require) {
         billResult = await htmlPrintService.printDirectThermal(orderData, storeInfo);
       } else {
         billResult = await htmlPrintService.printBillHTML(orderData, storeInfo);
       }
 
-      // Only show success if bill actually printed
       if (billResult.success) {
         toast.success('Bill printed successfully!');
-        // Clear order and close dialog
         dispatch(clearCurrentOrder());
-        // Refresh active orders list after completing order
         dispatch(fetchActiveOrders());
         setPaymentDialog(false);
-        setAmountPaid('');
-        setCompletedOrder(null);
-        // Clear discount fields for new order
-        setDiscountType('fixed');
-        setDiscountValue('');
+        resetOrderUiState();
       } else {
-        // Show error but still allow closing
         toast.error(billResult.message || 'Printer not connected. Please check printer.');
       }
-      
     } catch (error) {
       toast.error(`Failed to print bill: ${error.message}`);
-      console.error('Payment error:', error);
     }
   };
 
-  const change = parseFloat(amountPaid) - currentOrder.total;
+  const returnCreditLines = useMemo(() => {
+    return (currentOrder.returnedItems || []).map((item, index) => {
+      const qty = parseFloat(item.qty || 0) || 0;
+      const unitPrice = parseFloat(item.unit_price || 0) || 0;
+      return {
+        key: `${item.item_variant_id || 'item'}-${index}`,
+        title: `${item.item_name || 'Item'}${item.variant_name ? ` (${item.variant_name})` : ''}`,
+        qty,
+        unitPrice,
+        lineTotal: qty * unitPrice,
+      };
+    });
+  }, [currentOrder.returnedItems]);
 
   return (
     <>
-      <Card sx={{ height: '93vh', display: 'flex', flexDirection: 'column',overflow:'auto' }}>
+      <Card sx={{ height: '93vh', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
         <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-          
-
-          {/* Cashier Shift Warning */}
           {user?.role === 'cashier' && !activeShift && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                <strong>No Active Shift:</strong> You must open a cashier shift to process orders. 
-                Please open a shift from your profile menu in the top-right corner.
+                <strong>No Active Shift:</strong> You must open a cashier shift to process orders.
               </Typography>
             </Alert>
           )}
 
-          {/* Edit Mode Indicator */}
           {currentOrder.isEditing && (
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
@@ -372,43 +433,40 @@ const OrderSummary = () => {
             </Alert>
           )}
 
-          {/* Current loaded order header - moved from top of POS */}
+          {currentOrder.isReturnOrder && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>Return Order Mode</strong>
+                {currentOrder.originalOrderId ? ` - Original Order #${currentOrder.originalOrderId}` : ''}. Discounts are disabled.
+              </Typography>
+            </Alert>
+          )}
+
           {currentOrder.id && (
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Typography variant="subtitle1" fontWeight="bold">
                 Order #{currentOrder.id}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                {currentOrder.customerName ? (
-                  <Chip icon={<Person />} label={currentOrder.customerName} size="small" />
-                ) : null}
+                {currentOrder.customerName ? <Chip icon={<Person />} label={currentOrder.customerName} size="small" /> : null}
+                {currentOrder.barcode ? <Chip label={currentOrder.barcode} size="small" variant="outlined" /> : null}
               </Box>
             </Box>
           )}
 
           <Divider sx={{ mb: 2 }} />
 
-          {/* Order Items */}
-          <Box className="scrollbar-thin" sx={{ flexGrow: 1,bgcolor:'#f5f5f5', overflowY: 'auto' }}>
+          <Box className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
             {currentOrder.items.length === 0 ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '200px',
-                  color: 'text.secondary',
-                }}
-              >
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'text.secondary' }}>
                 <ShoppingCart sx={{ fontSize: 60, mb: 2, opacity: 0.5 }} />
-                <Typography variant="body1">No items in order</Typography>
+                <Typography variant="body1">No new sale items</Typography>
               </Box>
             ) : (
               <List dense>
-                {currentOrder.items.map((item) => (
+                {currentOrder.items.map((item, index) => (
                   <ListItem
-                    key={item.itemVariantId}
+                    key={item.lineKey || `${item.itemVariantId}-${index}`}
                     sx={{
                       border: '1px solid #e0e0e0',
                       borderRadius: 1,
@@ -424,7 +482,7 @@ const OrderSummary = () => {
                           <Typography variant="subtitle2" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
                             {item.itemName} {item.variantName && <span style={{ fontWeight: 'normal', color: '#666' }}>({item.variantName})</span>}
                           </Typography>
-                          {item.discountSource && (
+                          {item.discountSource && !currentOrder.isReturnOrder && (
                             <Chip
                               icon={<LocalOffer sx={{ fontSize: '0.6rem !important' }} />}
                               label={`${item.discountSource === 'item' ? 'Item' : item.discountSource === 'brand' ? 'Brand' : item.discountSource === 'manual' ? 'Manual' : 'Global'}: ${item.discountType === 'percentage' ? item.discountValue + '%' : 'Rs.' + item.discountValue}`}
@@ -437,28 +495,23 @@ const OrderSummary = () => {
                       }
                       secondary={
                         <Box>
-                          {item.discountAmount > 0 && item.originalPrice && (
+                          {item.discountAmount > 0 && item.originalPrice && !currentOrder.isReturnOrder && (
                             <Typography variant="caption" sx={{ color: 'error.main', textDecoration: 'line-through', mr: 1 }}>
                               {formatPrice(item.originalPrice)}
                             </Typography>
                           )}
+                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                            Unit: {formatPrice(item.price)}{item.preferredBatchId ? ` | Batch #${item.preferredBatchId}` : ''}
+                          </Typography>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleQuantityChange(item.itemVariantId, item.quantity - 1)}
-                                sx={{ p: 0.5 }}
-                              >
+                              <IconButton size="small" onClick={() => handleQuantityChange(item, item.quantity - 1)} sx={{ p: 0.5 }}>
                                 <Remove fontSize="small" />
                               </IconButton>
                               <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
                                 {item.quantity}
                               </Typography>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleQuantityChange(item.itemVariantId, item.quantity + 1)}
-                                sx={{ p: 0.5 }}
-                              >
+                              <IconButton size="small" onClick={() => handleQuantityChange(item, item.quantity + 1)} sx={{ p: 0.5 }}>
                                 <Add fontSize="small" />
                               </IconButton>
                             </Box>
@@ -466,48 +519,48 @@ const OrderSummary = () => {
                               <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
                                 {formatPrice(item.total)}
                               </Typography>
-                              <Tooltip title="Edit Discount">
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={() => {
-                                    setEditDiscountItem(item.itemVariantId);
-                                    setEditDiscountType(item.discountType || 'percentage');
-                                    setEditDiscountValue(item.discountValue || '');
-                                  }}
-                                  sx={{ p: 0.5 }}
-                                >
-                                  <EditIcon sx={{ fontSize: '0.9rem' }} />
-                                </IconButton>
+                              <Tooltip title={currentOrder.isReturnOrder ? 'Disabled for return orders' : 'Edit Discount'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    disabled={currentOrder.isReturnOrder}
+                                    onClick={() => {
+                                      setEditDiscountItem(item.lineKey);
+                                      setEditDiscountType(item.discountType || 'percentage');
+                                      setEditDiscountValue(item.discountValue || '');
+                                    }}
+                                    sx={{ p: 0.5 }}
+                                  >
+                                    <EditIcon sx={{ fontSize: '0.9rem' }} />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
-                              <Tooltip title="Reset to original price">
-                                <IconButton
-                                  size="small"
-                                  color="warning"
-                                  onClick={() => dispatch(resetItemDiscount(item.itemVariantId))}
-                                  sx={{ p: 0.5 }}
-                                  disabled={!item.discountSource}
-                                >
-                                  <Refresh sx={{ fontSize: '0.9rem' }} />
-                                </IconButton>
+                              <Tooltip title={currentOrder.isReturnOrder ? 'Disabled for return orders' : 'Reset to original price'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="warning"
+                                    disabled={currentOrder.isReturnOrder || !item.discountSource}
+                                    onClick={() => dispatch(resetItemDiscount(item.lineKey))}
+                                    sx={{ p: 0.5 }}
+                                  >
+                                    <Refresh sx={{ fontSize: '0.9rem' }} />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => dispatch(removeItemFromOrder(item.itemVariantId))}
-                                sx={{ p: 0.5 }}
-                              >
+                              <IconButton size="small" color="error" onClick={() => dispatch(removeItemFromOrder(item.lineKey))} sx={{ p: 0.5 }}>
                                 <Delete fontSize="small" />
                               </IconButton>
                             </Box>
                           </Box>
-                          {/* Inline discount edit */}
-                          {editDiscountItem === item.itemVariantId && (
+
+                          {!currentOrder.isReturnOrder && editDiscountItem === item.lineKey && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, p: 0.5, bgcolor: '#f0f4ff', borderRadius: 1 }}>
                               <Select
                                 size="small"
                                 value={editDiscountType}
-                                onChange={(e) => setEditDiscountType(e.target.value)}
+                                onChange={(event) => setEditDiscountType(event.target.value)}
                                 sx={{ minWidth: 80, height: 28, fontSize: '0.75rem' }}
                               >
                                 <MenuItem value="percentage">%</MenuItem>
@@ -517,7 +570,7 @@ const OrderSummary = () => {
                                 size="small"
                                 type="number"
                                 value={editDiscountValue}
-                                onChange={(e) => setEditDiscountValue(e.target.value)}
+                                onChange={(event) => setEditDiscountValue(event.target.value)}
                                 placeholder="Value"
                                 sx={{ width: 70 }}
                                 inputProps={{ min: 0, step: 0.01, style: { fontSize: '0.75rem', padding: '4px 8px' } }}
@@ -527,7 +580,7 @@ const OrderSummary = () => {
                                 variant="contained"
                                 onClick={() => {
                                   dispatch(updateItemDiscount({
-                                    itemVariantId: item.itemVariantId,
+                                    lineKey: item.lineKey,
                                     discountType: editDiscountType,
                                     discountValue: parseFloat(editDiscountValue) || 0,
                                   }));
@@ -537,12 +590,8 @@ const OrderSummary = () => {
                               >
                                 OK
                               </Button>
-                              <Button
-                                size="small"
-                                onClick={() => setEditDiscountItem(null)}
-                                sx={{ minWidth: 30, height: 28, fontSize: '0.7rem', p: 0 }}
-                              >
-                                ✕
+                              <Button size="small" onClick={() => setEditDiscountItem(null)} sx={{ minWidth: 30, height: 28, fontSize: '0.7rem', p: 0 }}>
+                                X
                               </Button>
                             </Box>
                           )}
@@ -555,39 +604,63 @@ const OrderSummary = () => {
             )}
           </Box>
 
-          {/* Order Summary */}
-          {currentOrder.items.length > 0 && (
+          {hasReturnItems && (
+            <Box sx={{ mt: 1, p: 1, border: '1px dashed #d81b60', borderRadius: 1, bgcolor: '#fff4f8' }}>
+              <Typography variant="subtitle2" sx={{ color: '#ad1457', mb: 0.5 }}>
+                Returned Items Credit
+              </Typography>
+              {returnCreditLines.map((line) => (
+                <Box key={line.key} sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
+                  <Typography variant="caption">{line.title} x {line.qty}</Typography>
+                  <Typography variant="caption" fontWeight="bold">- {formatPrice(line.lineTotal)}</Typography>
+                </Box>
+              ))}
+              <Divider sx={{ my: 0.7 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" fontWeight="bold">Total Return Credit</Typography>
+                <Typography variant="caption" fontWeight="bold">- {formatPrice(currentOrder.returnCreditTotal)}</Typography>
+              </Box>
+
+              <TextField
+                size="small"
+                label="Return Reason"
+                value={currentOrder.returnReason || ''}
+                onChange={(event) => dispatch(setReturnReason(event.target.value))}
+                fullWidth
+                sx={{ mt: 1 }}
+              />
+            </Box>
+          )}
+
+          {hasOrderContent && (
             <>
               <Divider sx={{ my: 2 }} />
-              <Box sx={{ space: 1 }}>
+              <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                  <Typography variant="body1">Items</Typography>
-                  <Typography variant="body1">{currentOrder.items.length} (Items)</Typography>
+                  <Typography variant="body1">Sale Items</Typography>
+                  <Typography variant="body1">{currentOrder.items.length}</Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                   <Typography variant="body1">Subtotal</Typography>
                   <Typography variant="body1">
                     {formatPrice(
-                      currentOrder.items.some(i => i.discountAmount > 0)
-                        ? currentOrder.items.reduce((sum, i) => sum + (i.originalPrice || i.price) * i.quantity, 0)
+                      currentOrder.items.some((item) => item.discountAmount > 0) && !currentOrder.isReturnOrder
+                        ? currentOrder.items.reduce((sum, item) => sum + (item.originalPrice || item.price) * item.quantity, 0)
                         : currentOrder.subtotal
                     )}
                   </Typography>
                 </Box>
 
-                {/* Item-level discounts summary */}
-                {currentOrder.items.some(i => i.discountAmount > 0) && (
+                {!currentOrder.isReturnOrder && currentOrder.items.some((item) => item.discountAmount > 0) && (
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="body2" color="error.main">Item Discounts</Typography>
                     <Typography variant="body2" color="error.main">
-                      Item Discounts
-                    </Typography>
-                    <Typography variant="body2" color="error.main">
-                      - {formatPrice(currentOrder.items.reduce((sum, i) => sum + (i.discountAmount || 0) * i.quantity, 0))}
+                      - {formatPrice(currentOrder.items.reduce((sum, item) => sum + (item.discountAmount || 0) * item.quantity, 0))}
                     </Typography>
                   </Box>
                 )}
-                
+
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                   <Typography variant="body1">Additional Charges</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -596,107 +669,78 @@ const OrderSummary = () => {
                       size="small"
                       type="number"
                       value={currentOrder.additionalCharges || ''}
-                      onChange={(e) => dispatch(setAdditionalCharges(parseFloat(e.target.value) || 0))}
+                      onChange={(event) => dispatch(setAdditionalCharges(parseFloat(event.target.value) || 0))}
                       sx={{ width: 120 }}
-                      inputProps={{ 
-                        min: 0, 
-                        step: 0.01,
-                        style: { 
-                          MozAppearance: 'textfield',
-                          WebkitAppearance: 'none',
-                          appearance: 'none'
-                        }
-                      }}
+                      inputProps={{ min: 0, step: 0.01 }}
                     />
                   </Box>
                 </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="body1">Discount</Typography>
-                    {globalDiscountSettings?.is_global_discount_active && (
-                      <Chip
-                        icon={<LocalOffer sx={{ fontSize: '0.7rem !important' }} />}
-                        label="Global"
-                        size="small"
-                        color="warning"
-                        sx={{ height: 20, fontSize: '0.65rem' }}
-                      />
-                    )}
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Select
-                      size="small"
-                      value={discountType || 'fixed'}
-                      onChange={(e) => {
-                        setDiscountType(e.target.value);
-                        setDiscountValue('');
-                      }}
-                      sx={{ width: 100 }}
-                      disabled={!!globalDiscountSettings?.is_global_discount_active}
-                    >
-                      <MenuItem value="fixed">Fixed</MenuItem>
-                      <MenuItem value="percent">Percent</MenuItem>
-                    </Select>
+                {!currentOrder.isReturnOrder && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      {discountType === 'fixed' && <Typography variant="body2">Rs.</Typography>}
-                      <TextField
+                      <Typography variant="body1">Discount</Typography>
+                      {globalDiscountSettings?.is_global_discount_active && (
+                        <Chip icon={<LocalOffer sx={{ fontSize: '0.7rem !important' }} />} label="Global" size="small" color="warning" sx={{ height: 20, fontSize: '0.65rem' }} />
+                      )}
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Select
                         size="small"
-                        type="number"
-                        value={discountValue || ''}
-                        disabled={!!globalDiscountSettings?.is_global_discount_active}
-                        onChange={(e) => {
-                          const inputValue = e.target.value;
-                          // Keep the raw string value to avoid floating point issues
-                          setDiscountValue(inputValue);
-                          
-                          // Only dispatch if there's a value
-                          if (inputValue) {
-                            const numValue = parseFloat(inputValue);
-                            if (!isNaN(numValue)) {
-                              if (discountType === 'percent') {
-                                // Round to 2 decimal places to avoid floating point errors
-                                const discountAmount = Math.round((numValue / 100) * currentOrder.subtotal * 100) / 100;
-                                dispatch(setDiscount(discountAmount));
-                              } else {
-                                // Round to 2 decimal places to avoid floating point errors
-                                dispatch(setDiscount(Math.round(numValue * 100) / 100));
-                              }
-                            }
-                          } else {
-                            dispatch(setDiscount(0));
-                          }
+                        value={discountType || 'fixed'}
+                        onChange={(event) => {
+                          setDiscountType(event.target.value);
+                          setDiscountValue('');
                         }}
                         sx={{ width: 100 }}
-                        inputProps={{ 
-                          min: 0, 
-                          max: discountType === 'percent' ? 100 : undefined,
-                          step: discountType === 'percent' ? 1 : 0.01,
-                          style: { 
-                            MozAppearance: 'textfield',
-                            WebkitAppearance: 'none',
-                            appearance: 'none'
-                          }
-                        }}
-                      />
-                      {discountType === 'percent' && <Typography variant="body2">%</Typography>}
+                        disabled={!!globalDiscountSettings?.is_global_discount_active}
+                      >
+                        <MenuItem value="fixed">Fixed</MenuItem>
+                        <MenuItem value="percent">Percent</MenuItem>
+                      </Select>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {discountType === 'fixed' && <Typography variant="body2">Rs.</Typography>}
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={discountValue || ''}
+                          disabled={!!globalDiscountSettings?.is_global_discount_active}
+                          onChange={(event) => {
+                            const inputValue = event.target.value;
+                            setDiscountValue(inputValue);
+                            if (inputValue) {
+                              const numValue = parseFloat(inputValue);
+                              if (Number.isFinite(numValue)) {
+                                if (discountType === 'percent') {
+                                  const discountAmount = Math.round((numValue / 100) * currentOrder.subtotal * 100) / 100;
+                                  dispatch(setDiscount(discountAmount));
+                                } else {
+                                  dispatch(setDiscount(Math.round(numValue * 100) / 100));
+                                }
+                              }
+                            } else {
+                              dispatch(setDiscount(0));
+                            }
+                          }}
+                          sx={{ width: 100 }}
+                          inputProps={{ min: 0, max: discountType === 'percent' ? 100 : undefined, step: discountType === 'percent' ? 1 : 0.01 }}
+                        />
+                        {discountType === 'percent' && <Typography variant="body2">%</Typography>}
+                      </Box>
                     </Box>
                   </Box>
-                </Box>
+                )}
+
+                {currentOrder.isReturnOrder && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="body1">Return Credit</Typography>
+                    <Typography variant="body1" color="success.main">- {formatPrice(currentOrder.returnCreditTotal)}</Typography>
+                  </Box>
+                )}
 
                 <Divider sx={{ my: 2 }} />
 
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    backgroundColor: '#1976d2',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-                  }}
-                >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1976d2', padding: '12px 16px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                   <Typography variant="h6" fontWeight="bold" sx={{ color: '#ffffff' }}>Total</Typography>
                   <Typography variant="h5" fontWeight="bold" sx={{ color: '#ffffff' }}>
                     {formatPrice(currentOrder.total)}
@@ -705,55 +749,42 @@ const OrderSummary = () => {
 
                 <Divider sx={{ my: 2 }} />
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
-                  <Typography variant="body1">Cash Tendered</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="body2">Rs.</Typography>
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={amountPaid}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        // Only allow valid numbers with max 2 decimal places
-                        if (value === '' || /^\d*\.?\d{0,2}$/.test(value)) {
-                          setAmountPaid(value);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        // Round to 2 decimal places on blur if there's a value
-                        if (e.target.value) {
-                          const rounded = parseFloat(e.target.value).toFixed(2);
-                          setAmountPaid(rounded);
-                        }
-                      }}
-                      sx={{ width: 120 }}
-                      inputProps={{ 
-                        min: 0, 
-                        step: 0.01,
-                        style: { 
-                          MozAppearance: 'textfield',
-                          WebkitAppearance: 'none',
-                          appearance: 'none'
-                        }
-                      }}
-                    />
+                {requiresCashTender ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <Typography variant="body1">Cash Tendered</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography variant="body2">Rs.</Typography>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={amountPaid}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === '' || /^\d*\.?\d{0,2}$/.test(value)) {
+                            setAmountPaid(value);
+                          }
+                        }}
+                        onBlur={(event) => {
+                          if (event.target.value) {
+                            const rounded = parseFloat(event.target.value).toFixed(2);
+                            setAmountPaid(rounded);
+                          }
+                        }}
+                        sx={{ width: 120 }}
+                        inputProps={{ min: 0, step: 0.01 }}
+                      />
+                    </Box>
                   </Box>
-                </Box>
+                ) : (
+                  <Alert severity={currentOrder.total < 0 ? 'info' : 'success'} sx={{ mb: 2 }}>
+                    {currentOrder.total < 0
+                      ? `Refund to customer: ${formatPrice(Math.abs(currentOrder.total))}`
+                      : 'No extra cash required for this order.'}
+                  </Alert>
+                )}
 
-                {amountPaid && (
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      backgroundColor: change >= 0 ? '#2e7d32' : '#d32f2f',
-                      padding: '12px 16px',
-                      borderRadius: '8px',
-                      mb: 2,
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
-                    }}
-                  >
+                {requiresCashTender && amountPaid && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: change >= 0 ? '#2e7d32' : '#d32f2f', padding: '12px 16px', borderRadius: '8px', mb: 2, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                     <Typography variant="h6" fontWeight="bold" sx={{ color: '#ffffff' }}>Change</Typography>
                     <Typography variant="h5" fontWeight="bold" sx={{ color: '#ffffff' }}>
                       {formatPrice(change)}
@@ -762,12 +793,9 @@ const OrderSummary = () => {
                 )}
 
                 <Divider sx={{ my: 1 }} />
-                
               </Box>
 
-              {/* Action Buttons */}
-              <Box sx={{ mt: 2, space: 1 }}>
-                {/* Show Update Order button if editing existing order */}
+              <Box sx={{ mt: 2 }}>
                 {currentOrder.isEditing ? (
                   <>
                     <Button
@@ -783,10 +811,6 @@ const OrderSummary = () => {
                         background: 'linear-gradient(45deg, #FF9800, #F57C00)',
                         fontSize: '1.1rem',
                         fontWeight: 'bold',
-                        '&.Mui-disabled': {
-                          background: 'linear-gradient(45deg, #9e9e9e, #757575)',
-                          color: '#ffffff'
-                        }
                       }}
                     >
                       Update Order
@@ -796,9 +820,7 @@ const OrderSummary = () => {
                       variant="outlined"
                       onClick={() => {
                         dispatch(clearCurrentOrder());
-                        setDiscountType('fixed');
-                        setDiscountValue('');
-                        setAmountPaid('');
+                        resetOrderUiState();
                       }}
                       sx={{ borderRadius: 2, mb: 1 }}
                     >
@@ -813,49 +835,44 @@ const OrderSummary = () => {
                       size="large"
                       startIcon={<Payment />}
                       onClick={handlePlaceOrder}
-                      disabled={loading || !amountPaid || change < 0 || currentOrder.total <= 0 || currentOrder.items.length === 0}
+                      disabled={loading || !hasOrderContent || (requiresCashTender && (!amountPaid || change < 0))}
                       sx={{
                         mb: 1,
                         borderRadius: 2,
-                        background: 'linear-gradient(45deg, #4ECDC4, #44A08D)',
+                        background: currentOrder.isReturnOrder
+                          ? 'linear-gradient(45deg, #E91E63, #C2185B)'
+                          : 'linear-gradient(45deg, #4ECDC4, #44A08D)',
                         fontSize: '1.1rem',
                         fontWeight: 'bold',
-                        '&.Mui-disabled': {
-                          background: 'linear-gradient(45deg, #9e9e9e, #757575)',
-                          color: '#ffffff'
-                        }
                       }}
                     >
-                      Place Order
+                      {currentOrder.isReturnOrder ? 'Place Return Order' : 'Place Order'}
                     </Button>
 
-                    <Button
-                      fullWidth
-                      variant="contained"
-                      size="large"
-                      onClick={() => setSetActiveDialogOpen(true)}
-                      sx={{
-                        mb: 1,
-                        borderRadius: 2,
-                        background: 'linear-gradient(45deg, #2196F3, #1976D2)',
-                        fontSize: '1.1rem',
-                        fontWeight: 'bold',
-                        '&:hover': {
-                          background: 'linear-gradient(45deg, #1976D2, #2196F3)'
-                        }
-                      }}
-                    >
-                      Set as Active
-                    </Button>
-                    
+                    {!currentOrder.isReturnOrder && (
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        size="large"
+                        onClick={() => setSetActiveDialogOpen(true)}
+                        sx={{
+                          mb: 1,
+                          borderRadius: 2,
+                          background: 'linear-gradient(45deg, #2196F3, #1976D2)',
+                          fontSize: '1.1rem',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        Set as Active
+                      </Button>
+                    )}
+
                     <Button
                       fullWidth
                       variant="outlined"
                       onClick={() => {
                         dispatch(clearCurrentOrder());
-                        setDiscountType('fixed');
-                        setDiscountValue('');
-                        setAmountPaid('');
+                        resetOrderUiState();
                       }}
                       sx={{ borderRadius: 2 }}
                     >
@@ -869,9 +886,6 @@ const OrderSummary = () => {
         </CardContent>
       </Card>
 
-      {/* Customer Info Dialog removed */}
-
-      {/* Set Active Dialog */}
       <SetActiveDialog
         open={setActiveDialogOpen}
         onClose={() => setSetActiveDialogOpen(false)}
@@ -879,69 +893,31 @@ const OrderSummary = () => {
         initialCustomerName={currentOrder.customerName}
       />
 
-      {/* Payment Dialog */}
       <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Payment Confirmation</DialogTitle>
         <DialogContent>
           <Alert severity="success" sx={{ mb: 2 }}>
-            Order placed successfully!
+            {completedOrder?.is_return ? 'Return order placed successfully!' : 'Order placed successfully!'}
           </Alert>
-          
-          {/* Hidden: Total Amount - kept for backward compatibility */}
-          <Typography variant="h6" gutterBottom sx={{ display: 'none' }}>
-            Total Amount: {formatPrice(currentOrder.total)}
+
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Order #{completedOrder?.id || '-'}
           </Typography>
-
-          {/* Hidden: Payment Method - kept for backward compatibility */}
-          <FormControl fullWidth sx={{ mb: 2, display: 'none' }}>
-            <InputLabel>Payment Method</InputLabel>
-            <Select
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              label="Payment Method"
-            >
-              <MenuItem value="cash">Cash</MenuItem>
-              <MenuItem value="card">Card</MenuItem>
-              <MenuItem value="digital">Digital Payment</MenuItem>
-            </Select>
-          </FormControl>
-
-          {/* Hidden: Amount Paid - kept for backward compatibility */}
-          {paymentMethod === 'cash' && (
-            <TextField
-              fullWidth
-              label="Amount Paid"
-              type="number"
-              value={amountPaid}
-              onChange={(e) => setAmountPaid(e.target.value)}
-              InputProps={{ startAdornment: 'Rs. ' }}
-              sx={{ mb: 2, display: 'none' }}
-            />
-          )}
-
-          {/* Hidden: Change display - kept for backward compatibility */}
-          {amountPaid && change >= 0 && paymentMethod === 'cash' && (
-            <Typography variant="body2" sx={{ mb: 2, display: 'none' }}>
-              Change: {formatPrice(change)}
+          {completedOrder?.barcode && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Barcode: {completedOrder.barcode}
             </Typography>
           )}
-
-          {/* Hidden: Insufficient amount warning - kept for backward compatibility */}
-          {amountPaid && change < 0 && paymentMethod === 'cash' && (
-            <Typography variant="body2" color="error" sx={{ mb: 2, display: 'none' }}>
-              Insufficient amount
-            </Typography>
-          )}
-
-          {/* Print status section removed as we no longer use printResults */}
+          <Typography variant="body2">
+            Total: {formatPrice(dialogTotal)}
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPaymentDialog(false)}>Close</Button>
-          <Button 
-            onClick={handlePaymentConfirm} 
-            variant="contained" 
+          <Button
+            onClick={handlePaymentConfirm}
+            variant="contained"
             startIcon={<Receipt />}
-            disabled={paymentMethod === 'cash' && change < 0}
           >
             Print Bill & Complete
           </Button>

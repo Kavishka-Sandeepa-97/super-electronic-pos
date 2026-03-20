@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getDatabase, getCurrentUTCTimestamp } = require('../database/init');
+const { getDatabase, getCurrentUTCTimestamp, generateUniqueBarcode } = require('../database/init');
 
 const isValidOrderStatus = (status) => ['active', 'completed', 'cancelled'].includes(status);
 
@@ -25,8 +25,40 @@ const parseOptionalNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const normalizeOrderItems = (items) => {
-  if (!Array.isArray(items) || items.length === 0) {
+const parseOptionalText = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const parseBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+};
+
+const normalizeOrderItems = (items, { allowEmpty = false } = {}) => {
+  if (!Array.isArray(items)) {
+    if (allowEmpty) {
+      return [];
+    }
+    throw new Error('Items are required');
+  }
+
+  if (!allowEmpty && items.length === 0) {
     throw new Error('Items are required');
   }
 
@@ -37,6 +69,11 @@ const normalizeOrderItems = (items) => {
     const unitPrice = parseNonNegativeNumber(item.unit_price, `unit_price at row ${row}`);
     const originalPrice = parseOptionalNumber(item.original_price, unitPrice);
 
+    let preferredBatchId = null;
+    if (item.preferred_batch_id !== undefined && item.preferred_batch_id !== null && item.preferred_batch_id !== '') {
+      preferredBatchId = parsePositiveInteger(item.preferred_batch_id, `preferred_batch_id at row ${row}`);
+    }
+
     return {
       item_variant_id: itemVariantId,
       qty,
@@ -46,13 +83,65 @@ const normalizeOrderItems = (items) => {
       discount_type: item.discount_type || null,
       discount_value: parseOptionalNumber(item.discount_value, 0),
       discount_amount: parseOptionalNumber(item.discount_amount, 0),
-      preferred_batch_id: item.preferred_batch_id ? parseInt(item.preferred_batch_id, 10) : null,
+      preferred_batch_id: preferredBatchId,
     };
   });
 };
 
+const normalizeReturnItems = (returnItems) => {
+  if (returnItems === undefined || returnItems === null) {
+    return [];
+  }
+
+  if (!Array.isArray(returnItems)) {
+    throw new Error('return_items must be an array');
+  }
+
+  return returnItems.map((item, index) => {
+    const row = index + 1;
+    const itemVariantId = parsePositiveInteger(item.item_variant_id, `return item_variant_id at row ${row}`);
+    const qty = parsePositiveInteger(item.qty, `return qty at row ${row}`);
+    const unitPrice = parseNonNegativeNumber(item.unit_price, `return unit_price at row ${row}`);
+    const originalPrice = parseOptionalNumber(item.original_price, unitPrice);
+
+    const batchAllocations = Array.isArray(item.batch_allocations)
+      ? item.batch_allocations.map((allocation, allocationIndex) => {
+          const allocationRow = allocationIndex + 1;
+          return {
+            qty: parsePositiveInteger(allocation.qty, `return batch_allocations.qty at row ${row}.${allocationRow}`),
+            batch_buy_price: parseOptionalNumber(allocation.batch_buy_price, 0),
+            batch_sell_price: parseOptionalNumber(allocation.batch_sell_price, originalPrice),
+            sold_unit_price: parseOptionalNumber(allocation.sold_unit_price, unitPrice),
+          };
+        })
+      : [];
+
+    return {
+      item_variant_id: itemVariantId,
+      qty,
+      unit_price: unitPrice,
+      original_price: originalPrice,
+      source_order_item_id: item.source_order_item_id ? parsePositiveInteger(item.source_order_item_id, `source_order_item_id at row ${row}`) : null,
+      batch_buy_price: parseOptionalNumber(item.batch_buy_price, 0),
+      batch_sell_price: parseOptionalNumber(item.batch_sell_price, originalPrice),
+      description: parseOptionalText(item.description),
+      batch_allocations: batchAllocations,
+    };
+  });
+};
+
+const calculateDiscountAmount = (subtotal, discountType, discountValue) => {
+  if (discountType === 'percent') {
+    return (subtotal * discountValue) / 100;
+  }
+  if (discountType === 'fixed') {
+    return discountValue;
+  }
+  return 0;
+};
+
 const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantId, qty, soldUnitPrice, preferredBatchId = null }) => {
-  // If preferredBatchId is given, that batch is sorted first; CASE returns NULL for null param → falls back to pure FIFO automatically
+  // If preferredBatchId is given, that batch is sorted first; CASE returns NULL for null param -> falls back to FIFO.
   const getBatches = db.prepare(`
     SELECT id, remaining_qty, buy_price, COALESCE(sell_price, 0) AS sell_price
     FROM stock_batch
@@ -66,16 +155,11 @@ const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantI
   `);
   const updateBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty - ? WHERE id = ?');
   const insertAllocation = db.prepare(`
-    INSERT INTO item_variant_order_batch (
-      order_item_id,
-      order_id,
-      item_variant_id,
+    INSERT INTO order_item_batch_allocation (
+      item_variant_order_id,
       stock_batch_id,
-      qty,
-      batch_buy_price,
-      batch_sell_price,
-      sold_unit_price
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      qty_allocated
+    ) VALUES (?, ?, ?)
   `);
 
   const batches = getBatches.all(itemVariantId, preferredBatchId);
@@ -91,13 +175,8 @@ const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantI
     updateBatch.run(deductQty, batch.id);
     insertAllocation.run(
       orderItemId,
-      orderId,
-      itemVariantId,
       batch.id,
-      deductQty,
-      parseOptionalNumber(batch.buy_price, 0),
-      parseOptionalNumber(batch.sell_price, 0),
-      soldUnitPrice
+      deductQty
     );
 
     allocatedQty += deductQty;
@@ -109,23 +188,117 @@ const allocateOrderItemAcrossBatches = (db, { orderId, orderItemId, itemVariantI
   }
 };
 
+const insertReturnStockForItem = (db, {
+  orderId,
+  orderItemId,
+  originalOrderId,
+  returnItem,
+}) => {
+  const insertStockBatch = db.prepare(`
+    INSERT INTO stock_batch (
+      item_variant_id,
+      buy_price,
+      sell_price,
+      initial_qty,
+      remaining_qty,
+      created_at,
+      description,
+      is_returned
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `);
+
+  const insertAllocation = db.prepare(`
+    INSERT INTO order_item_batch_allocation (
+      item_variant_order_id,
+      stock_batch_id,
+      qty_allocated
+    ) VALUES (?, ?, ?)
+  `);
+
+  const description = returnItem.description || `Return stock from order #${originalOrderId}`;
+  const createdAt = getCurrentUTCTimestamp();
+
+  const addReturnBatch = ({ qty, buyPrice, sellPrice, soldUnitPrice }) => {
+    const batchResult = insertStockBatch.run(
+      returnItem.item_variant_id,
+      parseOptionalNumber(buyPrice, 0),
+      parseOptionalNumber(sellPrice, returnItem.original_price),
+      qty,
+      qty,
+      createdAt,
+      description
+    );
+
+    const returnStockBatchId = batchResult.lastInsertRowid;
+    insertAllocation.run(
+      orderItemId,
+      returnStockBatchId,
+      qty
+    );
+  };
+
+  let remainingQty = returnItem.qty;
+  if (returnItem.batch_allocations.length > 0) {
+    for (const allocation of returnItem.batch_allocations) {
+      if (remainingQty <= 0) {
+        break;
+      }
+
+      const allocationQty = Math.min(remainingQty, allocation.qty);
+      addReturnBatch({
+        qty: allocationQty,
+        buyPrice: allocation.batch_buy_price,
+        sellPrice: allocation.batch_sell_price,
+        soldUnitPrice: allocation.sold_unit_price,
+      });
+      remainingQty -= allocationQty;
+    }
+  }
+
+  if (remainingQty > 0) {
+    addReturnBatch({
+      qty: remainingQty,
+      buyPrice: returnItem.batch_buy_price,
+      sellPrice: returnItem.batch_sell_price,
+      soldUnitPrice: returnItem.unit_price,
+    });
+  }
+};
+
 const clearOrderAllocations = (db, orderId) => {
-  db.prepare('DELETE FROM item_variant_order_batch WHERE order_id = ?').run(orderId);
+  db.prepare(`
+    DELETE FROM order_item_batch_allocation
+    WHERE item_variant_order_id IN (
+      SELECT id FROM item_variant_order WHERE order_id = ?
+    )
+  `).run(orderId);
 };
 
 const restoreOrderStock = (db, orderId) => {
   const allocations = db.prepare(`
-    SELECT stock_batch_id, qty
-    FROM item_variant_order_batch
-    WHERE order_id = ?
-    ORDER BY id ASC
+    SELECT oiba.stock_batch_id, oiba.qty_allocated, ivo.qty AS order_item_qty
+    FROM order_item_batch_allocation oiba
+    JOIN item_variant_order ivo ON ivo.id = oiba.item_variant_order_id
+    WHERE ivo.order_id = ?
+    ORDER BY oiba.id ASC
   `).all(orderId);
 
   if (allocations.length > 0) {
-    const restoreBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
+    const restoreSoldBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
+    const rollbackReturnBatch = db.prepare(`
+      UPDATE stock_batch
+      SET remaining_qty = CASE WHEN remaining_qty - ? < 0 THEN 0 ELSE remaining_qty - ? END
+      WHERE id = ?
+    `);
+
     for (const allocation of allocations) {
-      restoreBatch.run(allocation.qty, allocation.stock_batch_id);
+      if (parseInt(allocation.order_item_qty, 10) < 0) {
+        rollbackReturnBatch.run(allocation.qty_allocated, allocation.qty_allocated, allocation.stock_batch_id);
+      } else {
+        restoreSoldBatch.run(allocation.qty_allocated, allocation.stock_batch_id);
+      }
     }
+
     clearOrderAllocations(db, orderId);
     return;
   }
@@ -136,6 +309,9 @@ const restoreOrderStock = (db, orderId) => {
   const restoreBatch = db.prepare('UPDATE stock_batch SET remaining_qty = remaining_qty + ? WHERE id = ?');
 
   for (const item of items) {
+    if (item.qty <= 0) {
+      continue;
+    }
     const batches = getLatestBatch.all(item.item_variant_id);
     if (batches.length > 0) {
       restoreBatch.run(item.qty, batches[0].id);
@@ -143,67 +319,352 @@ const restoreOrderStock = (db, orderId) => {
   }
 };
 
+const validateReturnQuantities = (db, originalOrderId, returnItems) => {
+  if (returnItems.length === 0) {
+    return;
+  }
+
+  const requestedByVariant = returnItems.reduce((acc, item) => {
+    const existingQty = acc.get(item.item_variant_id) || 0;
+    acc.set(item.item_variant_id, existingQty + item.qty);
+    return acc;
+  }, new Map());
+
+  const soldQtyStmt = db.prepare(`
+    SELECT COALESCE(SUM(CASE WHEN qty > 0 THEN qty ELSE 0 END), 0) AS sold_qty
+    FROM item_variant_order
+    WHERE order_id = ? AND item_variant_id = ?
+  `);
+
+  const returnedQtyStmt = db.prepare(`
+    SELECT COALESCE(SUM(ABS(rivo.qty)), 0) AS returned_qty
+    FROM orders ro
+    JOIN item_variant_order rivo ON rivo.order_id = ro.id
+    WHERE COALESCE(ro.is_return, 0) = 1
+      AND ro.original_order_id = ?
+      AND rivo.item_variant_id = ?
+      AND rivo.qty < 0
+      AND ro.status != 'cancelled'
+  `);
+
+  for (const [itemVariantId, requestedQty] of requestedByVariant.entries()) {
+    const sold = soldQtyStmt.get(originalOrderId, itemVariantId);
+    const alreadyReturned = returnedQtyStmt.get(originalOrderId, itemVariantId);
+    const soldQty = parseOptionalNumber(sold?.sold_qty, 0);
+    const returnedQty = parseOptionalNumber(alreadyReturned?.returned_qty, 0);
+    const availableQty = Math.max(0, soldQty - returnedQty);
+
+    if (requestedQty > availableQty) {
+      throw new Error(`Return quantity exceeds available quantity for item variant ${itemVariantId}. Requested ${requestedQty}, available ${availableQty}`);
+    }
+  }
+};
+
 // Get all orders
 router.get('/', (req, res) => {
   const db = getDatabase();
-  const { status, date_from, date_to, page = 1, limit = 10 } = req.query;
-  
+  const {
+    status,
+    date_from,
+    date_to,
+    search,
+    is_return,
+    page = 1,
+    limit = 10,
+  } = req.query;
+
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
+
   try {
     let query = `
-      SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name 
-      FROM orders o 
+      SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name
+      FROM orders o
       JOIN staff s ON o.staff_id = s.id
     `;
-    let params = [];
-    let conditions = [];
-    
+    const params = [];
+    const conditions = [];
+
     if (status) {
       conditions.push('o.status = ?');
       params.push(status);
     }
-    
+
     if (date_from) {
       conditions.push('DATE(o.date) >= ?');
       params.push(date_from);
     }
-    
+
     if (date_to) {
       conditions.push('DATE(o.date) <= ?');
       params.push(date_to);
     }
-    
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
+
+    if (search && String(search).trim()) {
+      const likeSearch = `%${String(search).trim()}%`;
+      conditions.push('(CAST(o.id AS TEXT) LIKE ? OR o.barcode LIKE ? OR COALESCE(o.customer_name, \'\') LIKE ?)');
+      params.push(likeSearch, likeSearch, likeSearch);
     }
-    
-    query += ' ORDER BY o.date DESC';
-    
-    // Get total count for pagination
+
+    if (is_return !== undefined) {
+      const isReturnFilter = parseBoolean(is_return, null);
+      if (isReturnFilter !== null) {
+        conditions.push('COALESCE(o.is_return, 0) = ?');
+        params.push(isReturnFilter ? 1 : 0);
+      }
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    query += ' ORDER BY o.date DESC, o.id DESC';
+
     let countQuery = 'SELECT COUNT(*) as total FROM orders o';
     if (conditions.length > 0) {
-      countQuery += ' WHERE ' + conditions.join(' AND ');
+      countQuery += ` WHERE ${conditions.join(' AND ')}`;
     }
-    
+
     const countResult = db.prepare(countQuery).get(...params);
     const total = countResult.total;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Add pagination to main query
-    const paginatedQuery = query + ' LIMIT ? OFFSET ?';
-    const rows = db.prepare(paginatedQuery).all(...params, parseInt(limit), offset);
-    
-    // Calculate total amount for current result set
+    const offset = (safePage - 1) * safeLimit;
+
+    const rows = db.prepare(`${query} LIMIT ? OFFSET ?`).all(...params, safeLimit, offset);
     const totalAmount = rows.reduce((sum, order) => sum + parseFloat(order.total_amount || 0), 0);
-    
+
     res.json({
       orders: rows,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: total,
-        totalPages: Math.ceil(total / parseInt(limit))
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
       },
-      totalAmount: totalAmount
+      totalAmount,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search recently completed orders that can be returned.
+router.get('/return-search', (req, res) => {
+  const db = getDatabase();
+  const { q = '', limit = 20 } = req.query;
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+  try {
+    let query = `
+      SELECT
+        o.id,
+        o.barcode,
+        o.date,
+        o.total_amount,
+        o.customer_name,
+        o.status,
+        CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name
+      FROM orders o
+      JOIN staff s ON s.id = o.staff_id
+      WHERE o.status = 'completed'
+        AND COALESCE(o.is_return, 0) = 0
+    `;
+
+    const params = [];
+    if (String(q).trim()) {
+      const like = `%${String(q).trim()}%`;
+      query += ' AND (CAST(o.id AS TEXT) LIKE ? OR o.barcode LIKE ? OR COALESCE(o.customer_name, \'\') LIKE ?)';
+      params.push(like, like, like);
+    }
+
+    query += ' ORDER BY o.date DESC, o.id DESC LIMIT ?';
+    params.push(safeLimit);
+
+    const rows = db.prepare(query).all(...params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get daily sales summary
+router.get('/reports/daily', (req, res) => {
+  const db = getDatabase();
+  const { date } = req.query;
+  const targetDate = date || new Date().toISOString().split('T')[0];
+
+  try {
+    const summary = db.prepare(`
+      SELECT
+        COUNT(*) as total_orders,
+        SUM(total_amount) as total_sales,
+        SUM(additional_charges) as total_charges,
+        SUM(discount_value) as total_discounts,
+        AVG(total_amount) as average_order_value
+      FROM orders
+      WHERE DATE(date) = ?
+        AND status = 'completed'
+        AND COALESCE(is_return, 0) = 0
+    `).get(targetDate);
+
+    const topItems = db.prepare(`
+      WITH sales_rows AS (
+        SELECT
+          ivo.item_variant_id,
+          ivo.order_id,
+          oiba.qty_allocated as qty,
+          ivo.unit_price as unit_price
+        FROM order_item_batch_allocation oiba
+        JOIN item_variant_order ivo ON oiba.item_variant_order_id = ivo.id
+        JOIN orders o ON ivo.order_id = o.id
+        WHERE DATE(o.date) = ?
+          AND o.status = 'completed'
+          AND COALESCE(o.is_return, 0) = 0
+
+        UNION ALL
+
+        SELECT
+          ivo.item_variant_id,
+          ivo.order_id,
+          ivo.qty,
+          ivo.unit_price
+        FROM item_variant_order ivo
+        JOIN orders o ON ivo.order_id = o.id
+        WHERE DATE(o.date) = ?
+          AND o.status = 'completed'
+          AND COALESCE(o.is_return, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM order_item_batch_allocation oiba2
+            WHERE oiba2.item_variant_order_id = ivo.id
+          )
+      )
+      SELECT i.name as item_name, v.variant_name,
+             SUM(sr.qty) as total_qty,
+             SUM(sr.qty * sr.unit_price) as total_revenue
+      FROM sales_rows sr
+      JOIN item_variant iv ON sr.item_variant_id = iv.id
+      JOIN item i ON iv.item_id = i.id
+      JOIN variant v ON iv.variant_id = v.id
+      GROUP BY sr.item_variant_id
+      ORDER BY total_qty DESC
+      LIMIT 10
+    `).all(targetDate, targetDate);
+
+    res.json({
+      date: targetDate,
+      summary,
+      top_items: topItems,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get returnable details for a completed order.
+router.get('/:id/returnable-items', (req, res) => {
+  const db = getDatabase();
+  const { id } = req.params;
+
+  try {
+    const order = db.prepare(`
+      SELECT id, barcode, date, customer_name, total_amount, status, COALESCE(is_return, 0) AS is_return
+      FROM orders
+      WHERE id = ?
+    `).get(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (order.status !== 'completed') {
+      return res.status(400).json({ error: 'Only completed orders can be returned' });
+    }
+
+    if (order.is_return) {
+      return res.status(400).json({ error: 'Cannot create return from another return order' });
+    }
+
+    const items = db.prepare(`
+      SELECT
+        ivo.id as order_item_id,
+        ivo.item_variant_id,
+        ivo.qty,
+        ivo.unit_price,
+        ivo.original_price,
+        i.name as item_name,
+        v.variant_name,
+        iv.barcode
+      FROM item_variant_order ivo
+      JOIN item_variant iv ON iv.id = ivo.item_variant_id
+      JOIN item i ON i.id = iv.item_id
+      JOIN variant v ON v.id = iv.variant_id
+      WHERE ivo.order_id = ?
+        AND ivo.qty > 0
+      ORDER BY ivo.id ASC
+    `).all(id);
+
+    const returnTotals = db.prepare(`
+      SELECT
+        rivo.item_variant_id,
+        COALESCE(SUM(ABS(rivo.qty)), 0) AS returned_qty
+      FROM orders ro
+      JOIN item_variant_order rivo ON ro.id = rivo.order_id
+      WHERE COALESCE(ro.is_return, 0) = 1
+        AND ro.original_order_id = ?
+        AND rivo.qty < 0
+        AND ro.status != 'cancelled'
+      GROUP BY rivo.item_variant_id
+    `).all(id);
+
+    const returnedQtyMap = returnTotals.reduce((acc, row) => {
+      acc[row.item_variant_id] = parseOptionalNumber(row.returned_qty, 0);
+      return acc;
+    }, {});
+
+    const allocationRows = db.prepare(`
+      SELECT
+        oiba.item_variant_order_id AS order_item_id,
+        oiba.stock_batch_id,
+        oiba.qty_allocated AS qty,
+        sb.buy_price AS batch_buy_price,
+        sb.sell_price AS batch_sell_price,
+        ivo.unit_price AS sold_unit_price,
+        sb.expire_date,
+        sb.created_at as batch_created_at
+      FROM order_item_batch_allocation oiba
+      JOIN item_variant_order ivo ON ivo.id = oiba.item_variant_order_id
+      LEFT JOIN stock_batch sb ON sb.id = oiba.stock_batch_id
+      WHERE ivo.order_id = ?
+      ORDER BY oiba.item_variant_order_id ASC, oiba.id ASC
+    `).all(id);
+
+    const allocationMap = allocationRows.reduce((acc, allocation) => {
+      if (!acc[allocation.order_item_id]) {
+        acc[allocation.order_item_id] = [];
+      }
+      acc[allocation.order_item_id].push(allocation);
+      return acc;
+    }, {});
+
+    const returnableItems = items
+      .map((item) => {
+        const soldQty = parseOptionalNumber(item.qty, 0);
+        const alreadyReturnedQty = parseOptionalNumber(returnedQtyMap[item.item_variant_id], 0);
+        const maxReturnableQty = Math.max(0, soldQty - alreadyReturnedQty);
+
+        return {
+          ...item,
+          sold_qty: soldQty,
+          already_returned_qty: alreadyReturnedQty,
+          max_returnable_qty: maxReturnableQty,
+          batch_allocations: allocationMap[item.order_item_id] || [],
+        };
+      })
+      .filter((item) => item.max_returnable_qty > 0);
+
+    res.json({
+      order,
+      items: returnableItems,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -214,24 +675,22 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  
+
   try {
-    // Get order details
     const order = db.prepare(`
-      SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name 
-      FROM orders o 
-      JOIN staff s ON o.staff_id = s.id 
+      SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name
+      FROM orders o
+      JOIN staff s ON o.staff_id = s.id
       WHERE o.id = ?
     `).get(id);
-    
+
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
-    
-    // Get order items
+
     const items = db.prepare(`
       SELECT ivo.*, iv.barcode, i.name as item_name, v.variant_name, c.name as category,
-             ivo.discount_source, ivo.discount_type as item_discount_type, 
+             ivo.discount_source, ivo.discount_type as item_discount_type,
              ivo.discount_value as item_discount_value, ivo.discount_amount as item_discount_amount,
              ivo.original_price
       FROM item_variant_order ivo
@@ -244,18 +703,19 @@ router.get('/:id', (req, res) => {
 
     const allocations = db.prepare(`
       SELECT
-        iob.order_item_id,
-        iob.stock_batch_id,
-        iob.qty,
-        iob.batch_buy_price,
-        iob.batch_sell_price,
-        iob.sold_unit_price,
+        oiba.item_variant_order_id AS order_item_id,
+        oiba.stock_batch_id,
+        oiba.qty_allocated AS qty,
+        sb.buy_price AS batch_buy_price,
+        sb.sell_price AS batch_sell_price,
+        ivo.unit_price AS sold_unit_price,
         sb.expire_date,
         sb.created_at as batch_created_at
-      FROM item_variant_order_batch iob
-      LEFT JOIN stock_batch sb ON iob.stock_batch_id = sb.id
-      WHERE iob.order_id = ?
-      ORDER BY iob.order_item_id ASC, iob.id ASC
+      FROM order_item_batch_allocation oiba
+      JOIN item_variant_order ivo ON ivo.id = oiba.item_variant_order_id
+      LEFT JOIN stock_batch sb ON oiba.stock_batch_id = sb.id
+      WHERE ivo.order_id = ?
+      ORDER BY oiba.item_variant_order_id ASC, oiba.id ASC
     `).all(id);
 
     const allocationMap = allocations.reduce((acc, allocation) => {
@@ -270,30 +730,36 @@ router.get('/:id', (req, res) => {
       ...item,
       batch_allocations: allocationMap[item.id] || []
     }));
-    
+
     res.json({
       ...order,
-      items: itemsWithAllocations
+      items: itemsWithAllocations,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Create new order
+// Create new order (normal or return)
 router.post('/', (req, res) => {
   const db = getDatabase();
-  const { 
-    staff_id, 
-    additional_charges = 0, 
-    customer_name, 
+  const {
+    staff_id,
+    additional_charges = 0,
+    customer_name,
     tender_cash,
     discount_type,
     discount_value = 0,
     status = 'active',
-    items 
+    items,
+    is_card_payment = false,
+    barcode,
+    is_return = false,
+    original_order_id,
+    credit_reason,
+    return_items,
   } = req.body;
-  
+
   if (!staff_id) {
     return res.status(400).json({ error: 'Staff ID is required' });
   }
@@ -302,51 +768,145 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
+  const safeIsReturn = parseBoolean(is_return, false);
+
   let normalizedItems;
+  let normalizedReturnItems;
   try {
-    normalizedItems = normalizeOrderItems(items);
+    normalizedItems = normalizeOrderItems(items, { allowEmpty: safeIsReturn });
+    normalizedReturnItems = normalizeReturnItems(return_items);
   } catch (validationError) {
     return res.status(400).json({ error: validationError.message });
   }
 
+  if (!safeIsReturn && normalizedItems.length === 0) {
+    return res.status(400).json({ error: 'Items are required' });
+  }
+
+  if (safeIsReturn && !original_order_id) {
+    return res.status(400).json({ error: 'original_order_id is required for return orders' });
+  }
+
+  if (safeIsReturn && normalizedReturnItems.length === 0) {
+    return res.status(400).json({ error: 'return_items are required for return orders' });
+  }
+
+  if (!safeIsReturn && normalizedReturnItems.length > 0) {
+    return res.status(400).json({ error: 'return_items are only allowed for return orders' });
+  }
+
   const safeAdditionalCharges = parseOptionalNumber(additional_charges, 0);
-  const safeDiscountValue = parseOptionalNumber(discount_value, 0);
+  const safeDiscountValue = safeIsReturn ? 0 : parseOptionalNumber(discount_value, 0);
   const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
-  
-  // Calculate total amount
-  // unit_price is already the discounted price (item/brand/global discounts applied)
+  const safeDiscountType = safeIsReturn ? null : discount_type;
+  let safeOriginalOrderId = null;
+  try {
+    safeOriginalOrderId = safeIsReturn ? parsePositiveInteger(original_order_id, 'original_order_id') : null;
+  } catch (validationError) {
+    return res.status(400).json({ error: validationError.message });
+  }
+
+  const safeCreditReason = safeIsReturn ? parseOptionalText(credit_reason) : null;
+  const generatedBarcode = typeof generateUniqueBarcode === 'function' ? generateUniqueBarcode() : null;
+  const orderBarcode = parseOptionalText(barcode)
+    || generatedBarcode
+    || Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+  const safeIsCardPayment = parseBoolean(is_card_payment, false) ? 1 : 0;
+
   let subtotal = 0;
   for (const item of normalizedItems) {
     subtotal += item.unit_price * item.qty;
   }
-  
-  let discount_amount = 0;
-  if (discount_type === 'percent') {
-    discount_amount = (subtotal * safeDiscountValue) / 100;
-  } else if (discount_type === 'fixed') {
-    discount_amount = safeDiscountValue;
+
+  let returnCreditTotal = 0;
+  for (const returnItem of normalizedReturnItems) {
+    returnCreditTotal += returnItem.unit_price * returnItem.qty;
   }
-  
-  const total_amount = subtotal + safeAdditionalCharges - discount_amount;
-  
-  // Use transaction for atomic operations
+
+  const discountAmount = calculateDiscountAmount(subtotal, safeDiscountType, safeDiscountValue);
+  const totalAmount = subtotal + safeAdditionalCharges - discountAmount - returnCreditTotal;
+  const computedCreditApplied = safeIsReturn ? Math.max(totalAmount, 0) : 0;
+
   const transaction = db.transaction(() => {
-    // Insert order
+    if (safeIsReturn) {
+      const originalOrder = db.prepare(`
+        SELECT id, status, COALESCE(is_return, 0) AS is_return
+        FROM orders
+        WHERE id = ?
+      `).get(safeOriginalOrderId);
+
+      if (!originalOrder) {
+        throw new Error('Original order not found');
+      }
+      if (originalOrder.status !== 'completed') {
+        throw new Error('Only completed orders can be returned');
+      }
+      if (originalOrder.is_return) {
+        throw new Error('Cannot create return from another return order');
+      }
+
+      validateReturnQuantities(db, safeOriginalOrderId, normalizedReturnItems);
+    }
+
     const orderResult = db.prepare(`
-      INSERT INTO orders (staff_id, date, additional_charges, total_amount, 
-                          customer_name, tender_cash, discount_type, discount_value, status) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(staff_id, getCurrentUTCTimestamp(), safeAdditionalCharges, total_amount, customer_name,
-           safeTenderCash, discount_type, safeDiscountValue, status);
-    
+      INSERT INTO orders (
+        staff_id,
+        date,
+        additional_charges,
+        total_amount,
+        customer_name,
+        tender_cash,
+        discount_type,
+        discount_value,
+        status,
+        is_card_payment,
+        barcode,
+        is_return,
+        original_order_id,
+        credit_applied,
+        credit_reason
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      staff_id,
+      getCurrentUTCTimestamp(),
+      safeAdditionalCharges,
+      totalAmount,
+      customer_name || null,
+      safeTenderCash,
+      safeDiscountType,
+      safeDiscountValue,
+      status,
+      safeIsCardPayment,
+      orderBarcode,
+      safeIsReturn ? 1 : 0,
+      safeOriginalOrderId,
+      computedCreditApplied,
+      safeCreditReason
+    );
+
     const orderId = orderResult.lastInsertRowid;
-    
-    // Insert order items and update stock
-    const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    
+
+    const insertItem = db.prepare(`
+      INSERT INTO item_variant_order (
+        item_variant_id,
+        order_id,
+        qty,
+        unit_price,
+        discount_source,
+        discount_type,
+        discount_value,
+        discount_amount,
+        original_price
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
     for (const item of normalizedItems) {
       const itemResult = insertItem.run(
-        item.item_variant_id, orderId, item.qty, item.unit_price,
+        item.item_variant_id,
+        orderId,
+        item.qty,
+        item.unit_price,
         item.discount_source,
         item.discount_type,
         item.discount_value,
@@ -365,30 +925,69 @@ router.post('/', (req, res) => {
         });
       }
     }
-    
-    // Update cashier shift cash amount for completed orders
+
+    for (const returnItem of normalizedReturnItems) {
+      const returnItemResult = insertItem.run(
+        returnItem.item_variant_id,
+        orderId,
+        -returnItem.qty,
+        returnItem.unit_price,
+        'return',
+        null,
+        0,
+        0,
+        returnItem.original_price
+      );
+
+      if (status !== 'cancelled') {
+        insertReturnStockForItem(db, {
+          orderId,
+          orderItemId: returnItemResult.lastInsertRowid,
+          originalOrderId: safeOriginalOrderId,
+          returnItem,
+        });
+      }
+    }
+
     if (status === 'completed') {
       db.prepare(`
-        UPDATE cashier_shift 
-        SET current_cash_onhand = current_cash_onhand + ? 
+        UPDATE cashier_shift
+        SET current_cash_onhand = current_cash_onhand + ?
         WHERE staff_id = ? AND status = 'open'
-      `).run(total_amount, staff_id);
+      `).run(totalAmount, staff_id);
     }
-    
+
     return orderId;
   });
-  
+
   try {
     const orderId = transaction();
     res.status(201).json({
       id: orderId,
-      total_amount,
+      total_amount: totalAmount,
       status,
-      message: 'Order created successfully'
+      barcode: orderBarcode,
+      is_return: safeIsReturn,
+      credit_applied: computedCreditApplied,
+      return_credit_total: returnCreditTotal,
+      message: 'Order created successfully',
     });
   } catch (err) {
     if (err.message && err.message.startsWith('Insufficient stock')) {
       return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.includes('Return quantity exceeds')) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && (
+      err.message === 'Original order not found' ||
+      err.message === 'Only completed orders can be returned' ||
+      err.message === 'Cannot create return from another return order'
+    )) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.message && err.message.includes('UNIQUE constraint failed: orders.barcode')) {
+      return res.status(409).json({ error: 'Order barcode already exists' });
     }
     res.status(500).json({ error: err.message });
   }
@@ -399,14 +998,18 @@ router.put('/:id/status', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
   const { status } = req.body;
-  
+
   if (!isValidOrderStatus(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-  
+
   try {
     const transaction = db.transaction(() => {
-      const order = db.prepare('SELECT total_amount, staff_id, status as current_status FROM orders WHERE id = ?').get(id);
+      const order = db.prepare(`
+        SELECT total_amount, staff_id, status as current_status, COALESCE(is_return, 0) AS is_return
+        FROM orders
+        WHERE id = ?
+      `).get(id);
 
       if (!order) {
         throw new Error('Order not found');
@@ -416,17 +1019,20 @@ router.put('/:id/status', (req, res) => {
         return { message: `Order already in ${status} status` };
       }
 
-      // Cancel: restore exact consumed batches.
       if (status === 'cancelled' && order.current_status !== 'cancelled') {
         restoreOrderStock(db, id);
       }
 
-      // Re-open cancelled order: reserve stock again based on current order items.
       if (status !== 'cancelled' && order.current_status === 'cancelled') {
+        if (order.is_return) {
+          throw new Error('Cancelled return orders cannot be reopened');
+        }
+
         const existingItems = db.prepare(`
           SELECT id, item_variant_id, qty, unit_price
           FROM item_variant_order
           WHERE order_id = ?
+            AND qty > 0
         `).all(id);
 
         clearOrderAllocations(db, id);
@@ -436,7 +1042,7 @@ router.put('/:id/status', (req, res) => {
             orderItemId: item.id,
             itemVariantId: item.item_variant_id,
             qty: item.qty,
-            soldUnitPrice: parseOptionalNumber(item.unit_price, 0)
+            soldUnitPrice: parseOptionalNumber(item.unit_price, 0),
           });
         }
       }
@@ -473,6 +1079,9 @@ router.put('/:id/status', (req, res) => {
     if (err.message === 'Order not found') {
       return res.status(404).json({ error: err.message });
     }
+    if (err.message === 'Cancelled return orders cannot be reopened') {
+      return res.status(400).json({ error: err.message });
+    }
     if (err.message && err.message.startsWith('Insufficient stock')) {
       return res.status(400).json({ error: err.message });
     }
@@ -480,19 +1089,19 @@ router.put('/:id/status', (req, res) => {
   }
 });
 
-// Update order items and details
+// Update order items and details (non-return orders only)
 router.put('/:id', (req, res) => {
   const db = getDatabase();
   const { id } = req.params;
-  const { 
+  const {
     staff_id,
-    additional_charges = 0, 
-    customer_name, 
+    additional_charges = 0,
+    customer_name,
     discount_type,
     discount_value = 0,
     status,
     tender_cash,
-    items 
+    items,
   } = req.body;
 
   let normalizedItems;
@@ -510,47 +1119,43 @@ router.put('/:id', (req, res) => {
   const safeDiscountValue = parseOptionalNumber(discount_value, 0);
   const safeTenderCash = tender_cash === undefined ? null : parseOptionalNumber(tender_cash, 0);
 
-  // Calculate total amount
-  // unit_price is already the discounted price (item/brand/global discounts applied)
   let subtotal = 0;
   for (const item of normalizedItems) {
     subtotal += item.unit_price * item.qty;
   }
-  
-  let discount_amount = 0;
-  if (discount_type === 'percent') {
-    discount_amount = (subtotal * safeDiscountValue) / 100;
-  } else if (discount_type === 'fixed') {
-    discount_amount = safeDiscountValue;
-  }
-  
-  const total_amount = subtotal + safeAdditionalCharges - discount_amount;
-  
+
+  const discountAmount = calculateDiscountAmount(subtotal, discount_type, safeDiscountValue);
+  const totalAmount = subtotal + safeAdditionalCharges - discountAmount;
+
   try {
     const transaction = db.transaction(() => {
-      // Get old order details
       const oldOrder = db.prepare(`
-        SELECT total_amount as old_total, status as old_status, staff_id, tender_cash
+        SELECT total_amount as old_total, status as old_status, staff_id, tender_cash, COALESCE(is_return, 0) AS is_return
         FROM orders
         WHERE id = ?
       `).get(id);
+
       if (!oldOrder) {
         throw new Error('Order not found');
+      }
+
+      if (oldOrder.is_return) {
+        throw new Error('Return orders cannot be edited after creation');
       }
 
       const resolvedStatus = status || oldOrder.old_status;
       const resolvedStaffId = staff_id || oldOrder.staff_id;
       const resolvedTenderCash = safeTenderCash === null ? oldOrder.tender_cash : safeTenderCash;
-      
-      // Update order
+
       const updateResult = db.prepare(`
-        UPDATE orders SET staff_id = ?, additional_charges = ?, total_amount = ?, 
-                         customer_name = ?, discount_type = ?, discount_value = ?, status = ?, tender_cash = ?
+        UPDATE orders
+        SET staff_id = ?, additional_charges = ?, total_amount = ?,
+            customer_name = ?, discount_type = ?, discount_value = ?, status = ?, tender_cash = ?
         WHERE id = ?
       `).run(
         resolvedStaffId,
         safeAdditionalCharges,
-        total_amount,
+        totalAmount,
         customer_name,
         discount_type,
         safeDiscountValue,
@@ -558,34 +1163,46 @@ router.put('/:id', (req, res) => {
         resolvedTenderCash,
         id
       );
-      
+
       if (updateResult.changes === 0) {
         throw new Error('Order not found');
       }
-      
-      // Restore previously reserved stock only for non-cancelled orders.
+
       if (oldOrder.old_status !== 'cancelled') {
         restoreOrderStock(db, id);
       } else {
         clearOrderAllocations(db, id);
       }
-      
-      // Delete old order items
+
       db.prepare('DELETE FROM item_variant_order WHERE order_id = ?').run(id);
-      
-      // Insert new order items and deduct stock
-      const insertItem = db.prepare('INSERT INTO item_variant_order (item_variant_id, order_id, qty, unit_price, discount_source, discount_type, discount_value, discount_amount, original_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      
+
+      const insertItem = db.prepare(`
+        INSERT INTO item_variant_order (
+          item_variant_id,
+          order_id,
+          qty,
+          unit_price,
+          discount_source,
+          discount_type,
+          discount_value,
+          discount_amount,
+          original_price
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
       for (const item of normalizedItems) {
         const itemResult = insertItem.run(
-          item.item_variant_id, id, item.qty, item.unit_price,
+          item.item_variant_id,
+          id,
+          item.qty,
+          item.unit_price,
           item.discount_source,
           item.discount_type,
           item.discount_value,
           item.discount_amount,
           item.original_price
         );
-        
+
         if (resolvedStatus !== 'cancelled') {
           allocateOrderItemAcrossBatches(db, {
             orderId: id,
@@ -597,112 +1214,45 @@ router.put('/:id', (req, res) => {
           });
         }
       }
-      
-      // Adjust cashier cash based on status and total changes
-      let cash_change = 0;
+
+      let cashChange = 0;
       if (resolvedStatus === 'completed') {
         if (oldOrder.old_status === 'completed') {
-          cash_change = total_amount - oldOrder.old_total;
+          cashChange = totalAmount - oldOrder.old_total;
         } else {
-          cash_change = total_amount;
+          cashChange = totalAmount;
         }
-      } else {
-        if (oldOrder.old_status === 'completed') {
-          cash_change = -oldOrder.old_total;
-        }
+      } else if (oldOrder.old_status === 'completed') {
+        cashChange = -oldOrder.old_total;
       }
-      
-      if (cash_change !== 0) {
+
+      if (cashChange !== 0) {
         db.prepare(`
-          UPDATE cashier_shift 
-          SET current_cash_onhand = current_cash_onhand + ? 
+          UPDATE cashier_shift
+          SET current_cash_onhand = current_cash_onhand + ?
           WHERE staff_id = ? AND status = 'open'
-        `).run(cash_change, resolvedStaffId);
+        `).run(cashChange, resolvedStaffId);
       }
-      
-      return { id: id, total_amount };
+
+      return { id, total_amount: totalAmount };
     });
-    
+
     const result = transaction();
     res.json({
       id: result.id,
       total_amount: result.total_amount,
-      message: 'Order updated successfully'
+      message: 'Order updated successfully',
     });
   } catch (err) {
     if (err.message === 'Order not found') {
       return res.status(404).json({ error: err.message });
     }
+    if (err.message === 'Return orders cannot be edited after creation') {
+      return res.status(400).json({ error: err.message });
+    }
     if (err.message && err.message.startsWith('Insufficient stock')) {
       return res.status(400).json({ error: err.message });
     }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get daily sales summary
-router.get('/reports/daily', (req, res) => {
-  const db = getDatabase();
-  const { date } = req.query;
-  const targetDate = date || new Date().toISOString().split('T')[0];
-  
-  try {
-    const summary = db.prepare(`
-      SELECT 
-        COUNT(*) as total_orders,
-        SUM(total_amount) as total_sales,
-        SUM(additional_charges) as total_charges,
-        SUM(discount_value) as total_discounts,
-        AVG(total_amount) as average_order_value
-      FROM orders 
-      WHERE DATE(date) = ? AND status = 'completed'
-    `).get(targetDate);
-    
-    const topItems = db.prepare(`
-      WITH sales_rows AS (
-        SELECT
-          iob.item_variant_id,
-          iob.order_id,
-          iob.qty,
-          iob.sold_unit_price as unit_price
-        FROM item_variant_order_batch iob
-        JOIN orders o ON iob.order_id = o.id
-        WHERE DATE(o.date) = ? AND o.status = 'completed'
-
-        UNION ALL
-
-        SELECT
-          ivo.item_variant_id,
-          ivo.order_id,
-          ivo.qty,
-          ivo.unit_price
-        FROM item_variant_order ivo
-        JOIN orders o ON ivo.order_id = o.id
-        WHERE DATE(o.date) = ? AND o.status = 'completed'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM item_variant_order_batch iob2
-            WHERE iob2.order_item_id = ivo.id
-          )
-      )
-      SELECT i.name as item_name, v.variant_name,
-             SUM(sr.qty) as total_qty,
-             SUM(sr.qty * sr.unit_price) as total_revenue
-      FROM sales_rows sr
-      JOIN item_variant iv ON sr.item_variant_id = iv.id
-      JOIN item i ON iv.item_id = i.id
-      JOIN variant v ON iv.variant_id = v.id
-      GROUP BY sr.item_variant_id
-      ORDER BY total_qty DESC
-      LIMIT 10
-    `).all(targetDate, targetDate);
-    
-    res.json({
-      date: targetDate,
-      summary: summary,
-      top_items: topItems
-    });
-  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

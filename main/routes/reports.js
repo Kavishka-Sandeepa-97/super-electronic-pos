@@ -68,13 +68,15 @@ const getDateRange = (period, startDate, endDate) => {
 const completedSalesCte = `
   WITH completed_sales AS (
     SELECT
-      iob.item_variant_id,
-      iob.order_id,
-      iob.qty,
-      iob.sold_unit_price AS sold_unit_price,
-      iob.batch_buy_price AS buy_unit_price
-    FROM item_variant_order_batch iob
-    JOIN orders o ON iob.order_id = o.id
+      ivo.item_variant_id,
+      ivo.order_id,
+      oiba.qty_allocated AS qty,
+      ivo.unit_price AS sold_unit_price,
+      COALESCE(sb.buy_price, 0) AS buy_unit_price
+    FROM order_item_batch_allocation oiba
+    JOIN item_variant_order ivo ON oiba.item_variant_order_id = ivo.id
+    LEFT JOIN stock_batch sb ON oiba.stock_batch_id = sb.id
+    JOIN orders o ON ivo.order_id = o.id
     WHERE o.status = 'completed'
       AND DATE(o.date) >= ?
       AND DATE(o.date) <= ?
@@ -104,8 +106,8 @@ const completedSalesCte = `
       AND DATE(o.date) <= ?
       AND NOT EXISTS (
         SELECT 1
-        FROM item_variant_order_batch iob2
-        WHERE iob2.order_item_id = ivo.id
+        FROM order_item_batch_allocation oiba2
+        WHERE oiba2.item_variant_order_id = ivo.id
       )
   )
 `;

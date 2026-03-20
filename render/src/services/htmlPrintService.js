@@ -25,10 +25,32 @@ const getReceiptFontSettings = () => {
   return { fontFamily, fontWeight, fontSize };
 };
 
+const generateBarcodeSvgMarkup = (barcodeValue) => {
+  if (!barcodeValue || typeof document === 'undefined') {
+    return '';
+  }
+
+  try {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    JsBarcode(svg, String(barcodeValue), {
+      format: 'CODE128',
+      width: 1.1,
+      height: 20,
+      displayValue: false,
+      margin: 0,
+    });
+    return svg.outerHTML;
+  } catch (error) {
+    console.error('Failed to generate order barcode SVG:', error);
+    return '';
+  }
+};
+
 // Build receipt HTML used by both browser and thermal printing
 const buildReceiptHTML = (order = {}, storeInfo = {}) => {
-  const { id, items = [], cashier, paymentMethod, amountPaid, tender_cash, discount_type, discount_value, additional_charges } = order;
+  const { id, barcode, items = [], cashier, paymentMethod, amountPaid, tender_cash, discount_type, discount_value, additional_charges } = order;
   const { fontFamily, fontWeight, fontSize } = getReceiptFontSettings();
+  const orderBarcodeSvg = generateBarcodeSvgMarkup(barcode);
 
   // Calculate totals
   let subtotal = 0;
@@ -83,13 +105,17 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
       .disc-row td { font-size: 10px; color: #333; padding: 0 0 2px 8px; font-weight: normal; }
       .sep { border-top: 1px dashed #000; margin: 6px 0; }
       .total-row td { font-size: 15px; font-weight: 900; }
+      .receipt-footer { text-align: center; margin-top: 10px; }
+      .order-barcode { text-align: center; margin-top: 6px; }
+      .order-barcode svg { display: block; margin: 0 auto; max-width: 190px; height: 22px; }
+      .order-barcode-number { margin-top: 1px; font-size: 10px; letter-spacing: 1px; }
     </style>
   `;
 
   const itemsHtml = items.map(it => {
     const itemName = (it.item_name || it.itemName || 'Item').toString();
     const variantName = (it.variant_name || it.variantName || '').toString();
-    const displayName = variantName ? `${itemName} (${variantName})` : itemName;
+    const displayName = variantName ? `${itemName} (${variantName})` : `${itemName}`;
     const qty = parseFloat(it.quantity || it.qty || 0) || 0;
     const price = parseFloat(it.price || it.unit_price || 0) || 0;
     const lineTotal = (qty * price).toFixed(2);
@@ -98,6 +124,7 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
     const discType = it.item_discount_type || it.discount_type || it.discountType || '';
     const discVal = parseFloat(it.item_discount_value || it.discount_value || it.discountValue || 0) || 0;
     let row = `<tr class="items"><td>${displayName}</td><td>${qty}</td><td class="right">${lineTotal}</td></tr>`;
+    row += `<tr class="disc-row"><td colspan="3">&nbsp;&nbsp;Unit: ${currency} ${price.toFixed(2)}</td></tr>`;
     if (discAmt > 0 && discSource) {
       const discLabel = discSource === 'item' ? 'Item Disc' : discSource === 'brand' ? 'Brand Disc' : discSource === 'global' ? 'Global Disc' : 'Disc';
       const discInfo = discType === 'percentage' ? `${discVal}%` : `${currency} ${discVal.toFixed(2)}`;
@@ -156,7 +183,15 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
           <div>Paid: ${currency} ${paid.toFixed(2)}</div>
           ${paid > 0 ? `<div>Change: ${currency} ${change >= 0 ? change.toFixed(2) : '0.00'}</div>` : ''}
 
-          <div class="center small" style="margin-top:12px">${storeInfo.receiptFooter || 'Thank you for your visit !'}</div>
+          <div class="receipt-footer">
+            <div class="small">${storeInfo.receiptFooter || 'Thank you for your visit !'}</div>
+            ${barcode ? `
+              <div class="order-barcode">
+                ${orderBarcodeSvg}
+                <div class="order-barcode-number">${barcode}</div>
+              </div>
+            ` : ''}
+          </div>
         </div>
       </body>
     </html>

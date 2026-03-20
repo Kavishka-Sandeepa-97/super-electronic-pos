@@ -386,18 +386,20 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
     const movements = db.prepare(`
       SELECT 
         'OUT' as type,
-        iob.qty as quantity,
-        iob.sold_unit_price as price,
-        iob.batch_buy_price as buy_price,
-        iob.batch_sell_price as sell_price,
+        oiba.qty_allocated as quantity,
+        ivo.unit_price as price,
+        sb.buy_price as buy_price,
+        sb.sell_price as sell_price,
         o.date as created_at,
         o.id as reference_id,
-        'Order #' || o.id || ' / Batch #' || iob.stock_batch_id as description,
+        'Order #' || o.id || ' / Batch #' || oiba.stock_batch_id as description,
         s.name as staff_name
-      FROM item_variant_order_batch iob
-      JOIN orders o ON iob.order_id = o.id
+      FROM order_item_batch_allocation oiba
+      JOIN item_variant_order ivo ON oiba.item_variant_order_id = ivo.id
+      JOIN orders o ON ivo.order_id = o.id
       JOIN staff s ON o.staff_id = s.id
-      WHERE iob.item_variant_id = ? AND o.status = 'completed'
+      LEFT JOIN stock_batch sb ON sb.id = oiba.stock_batch_id
+      WHERE ivo.item_variant_id = ? AND o.status = 'completed'
 
       UNION ALL
 
@@ -418,8 +420,8 @@ server.get('/api/stock/movements/:itemVariantId', (req, res) => {
         AND o.status = 'completed'
         AND NOT EXISTS (
           SELECT 1
-          FROM item_variant_order_batch iob2
-          WHERE iob2.order_item_id = ivo.id
+          FROM order_item_batch_allocation oiba2
+          WHERE oiba2.item_variant_order_id = ivo.id
         )
       
       UNION ALL

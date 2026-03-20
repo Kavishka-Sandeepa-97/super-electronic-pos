@@ -54,6 +54,7 @@ import OrderSummary from './OrderSummary';
 import ActiveOrdersDialog from './ActiveOrdersDialog';
 import BarcodeNotFoundDialog from './BarcodeNotFoundDialog';
 import OrderHistoryDialog from './OrderHistoryDialog';
+import ReturnOrderDialog from './ReturnOrderDialog';
 import BatchSelectionDialog from './BatchSelectionDialog';
 import CategoryMenu from './CategoryMenu';
 import BrandMenu from './BrandMenu';
@@ -74,7 +75,7 @@ const POSInterface = () => {
     error
   } = useSelector((state) => state.inventory);
 
-  const { activeOrders } = useSelector((state) => state.order);
+  const { activeOrders, currentOrder } = useSelector((state) => state.order);
   const { modals } = useSelector((state) => state.ui);
 
   const [searchInput, setSearchInput] = useState('');
@@ -88,6 +89,7 @@ const POSInterface = () => {
   const [failedBarcode, setFailedBarcode] = useState('');
   const [successMessage, setSuccessMessage] = useState(null);
   const [orderHistoryOpen, setOrderHistoryOpen] = useState(false);
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
 
   // Batch selection dialog state
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
@@ -108,12 +110,43 @@ const POSInterface = () => {
   };
 
   // Helper: add item directly (single price or after batch selected)
-  const addItemWithPrice = useCallback((itemVariant, sellPrice, barcode, preferredBatchId = null) => {
+  const addItemWithPrice = useCallback((itemVariant, sellPrice, barcode, preferredBatchId = null, batchRemainingQty = null) => {
+    const variantId = itemVariant.id;
+    const totalStock = parseFloat(itemVariant.total_stock);
+    const safeTotalStock = Number.isFinite(totalStock) ? totalStock : null;
+
+    const variantQtyInOrder = (currentOrder.items || [])
+      .filter((item) => item.itemVariantId === variantId)
+      .reduce((sum, item) => sum + (parseFloat(item.quantity || 0) || 0), 0);
+
+    if (safeTotalStock !== null && variantQtyInOrder >= safeTotalStock) {
+      toast.error(`Only ${safeTotalStock} units available in stock`);
+      return;
+    }
+
+    const normalizedPrice = (parseFloat(sellPrice) || 0).toFixed(2);
+    const matchingLine = (currentOrder.items || []).find((item) =>
+      item.itemVariantId === variantId
+      && (item.preferredBatchId || null) === (preferredBatchId || null)
+      && (parseFloat(item.price || 0).toFixed(2) === normalizedPrice)
+    );
+
+    const parsedBatchLimit = parseFloat(batchRemainingQty);
+    const hasBatchLimit = preferredBatchId && Number.isFinite(parsedBatchLimit);
+    if (hasBatchLimit) {
+      const currentLineQty = matchingLine ? (parseFloat(matchingLine.quantity || 0) || 0) : 0;
+      if (currentLineQty >= parsedBatchLimit) {
+        toast.error(`Selected batch has only ${parsedBatchLimit} units`);
+        return;
+      }
+    }
+
     dispatch(addItemToOrder({
       itemVariant: { ...itemVariant, selling_price: sellPrice, sellingPrice: sellPrice },
       quantity: 1,
       globalDiscountSettings,
       preferredBatchId,
+      batchRemainingQty: hasBatchLimit ? parsedBatchLimit : null,
     }));
     setSuccessMessage({
       name: itemVariant.item_name,
@@ -122,13 +155,19 @@ const POSInterface = () => {
     });
     toast.success(`${itemVariant.item_name} added to order`);
     setTimeout(() => setSuccessMessage(null), 2000);
-  }, [dispatch, globalDiscountSettings]);
+  }, [dispatch, globalDiscountSettings, currentOrder.items]);
 
   // Handle batch dialog confirm
   const handleBatchConfirm = useCallback((selectedBatch, _reason) => {
     if (!batchDialogData) return;
     const { itemVariant, barcode } = batchDialogData;
-    addItemWithPrice(itemVariant, parseFloat(selectedBatch.sell_price), barcode, selectedBatch.id);
+    addItemWithPrice(
+      itemVariant,
+      parseFloat(selectedBatch.sell_price),
+      barcode,
+      selectedBatch.id,
+      parseFloat(selectedBatch.remaining_qty || 0)
+    );
     setBatchDialogOpen(false);
     setBatchDialogData(null);
   }, [batchDialogData, addItemWithPrice]);
@@ -215,11 +254,7 @@ const POSInterface = () => {
       const response = await fetch(`http://localhost:3001/api/item-variants/${itemVariant.id}`);
       if (!response.ok) {
         // Fallback: add directly with existing price
-        dispatch(addItemToOrder({
-          itemVariant: { ...itemVariant, sellingPrice: parseFloat(itemVariant.selling_price) },
-          quantity: 1,
-          globalDiscountSettings,
-        }));
+        addItemWithPrice(itemVariant, parseFloat(itemVariant.selling_price), null);
         return;
       }
       const freshData = await response.json();
@@ -240,13 +275,9 @@ const POSInterface = () => {
       }
     } catch (error) {
       // Fallback on network error
-      dispatch(addItemToOrder({
-        itemVariant: { ...itemVariant, sellingPrice: parseFloat(itemVariant.selling_price) },
-        quantity: 1,
-        globalDiscountSettings,
-      }));
+      addItemWithPrice(itemVariant, parseFloat(itemVariant.selling_price), null);
     }
-  }, [addItemWithPrice, dispatch, globalDiscountSettings]);
+  }, [addItemWithPrice]);
 
   const getStockStatus = (stock) => {
     if (stock <= 0) return { label: 'Out of Stock', color: 'error' };
@@ -408,6 +439,22 @@ const POSInterface = () => {
               }}
             >
               Order History
+            </Button>
+
+            <Button
+              variant="contained"
+              onClick={() => setReturnDialogOpen(true)}
+              sx={{
+                whiteSpace: 'nowrap',
+                background: '#E91E63',
+                color: 'white',
+                '&:hover': { background: '#C2185B' },
+                height: 40,
+                px: 4,
+                borderRadius: 15,
+              }}
+            >
+              Return
             </Button>
           </Box>
 
@@ -673,6 +720,11 @@ const POSInterface = () => {
       <OrderHistoryDialog
         open={orderHistoryOpen}
         onClose={() => setOrderHistoryOpen(false)}
+      />
+
+      <ReturnOrderDialog
+        open={returnDialogOpen}
+        onClose={() => setReturnDialogOpen(false)}
       />
 
       {/* Barcode Not Found Dialog */}

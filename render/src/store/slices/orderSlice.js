@@ -1,8 +1,65 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { ordersAPI } from '../../services/api';
-import { fetchActiveShift } from './cashierShiftSlice';
-import { setActiveShift } from './authSlice';
-import { cashierShiftAPI } from '../../services/api';
+
+const toNumber = (value, fallback = 0) => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toOptionalNumber = (value) => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildOrderLineKey = (itemVariantId, price, preferredBatchId = null) => {
+  const normalizedPrice = toNumber(price, 0).toFixed(2);
+  const batchPart = preferredBatchId !== null && preferredBatchId !== undefined ? preferredBatchId : 'auto';
+  return `${itemVariantId}:${batchPart}:${normalizedPrice}`;
+};
+
+const createEmptyOrder = () => ({
+  id: null,
+  items: [],
+  subtotal: 0,
+  discount: 0,
+  additionalCharges: 0,
+  total: 0,
+  customerName: '',
+  orderType: 'dine-in',
+  isEditing: false,
+  originalStatus: null,
+  barcode: null,
+  isReturnOrder: false,
+  originalOrderId: null,
+  returnReason: '',
+  returnedItems: [],
+  returnCreditTotal: 0,
+});
+
+const calculateReturnCredit = (returnedItems = []) => {
+  return returnedItems.reduce((sum, item) => {
+    const qty = toNumber(item.qty, 0);
+    const unitPrice = toNumber(item.unit_price, 0);
+    return sum + (qty * unitPrice);
+  }, 0);
+};
+
+const recalculateCurrentOrder = (order) => {
+  order.subtotal = order.items.reduce((sum, item) => {
+    const itemTotal = toNumber(item.total, 0);
+    return sum + itemTotal;
+  }, 0);
+
+  if (order.isReturnOrder) {
+    order.discount = 0;
+    order.returnCreditTotal = calculateReturnCredit(order.returnedItems);
+    order.total = order.subtotal + toNumber(order.additionalCharges, 0) - order.returnCreditTotal;
+    return;
+  }
+
+  order.returnCreditTotal = 0;
+  order.total = order.subtotal + toNumber(order.additionalCharges, 0) - toNumber(order.discount, 0);
+};
 
 // Async thunks for order operations
 export const fetchActiveOrders = createAsyncThunk(
@@ -10,7 +67,6 @@ export const fetchActiveOrders = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const response = await ordersAPI.getActive();
-      // Handle new API response format with pagination
       return response.orders || response || [];
     } catch (error) {
       return rejectWithValue(error.message);
@@ -22,7 +78,6 @@ export const createOrder = createAsyncThunk(
   'orders/createOrder',
   async (orderData, { rejectWithValue, getState }) => {
     try {
-      // Check if user has active cashier shift (only for cashiers)
       const { auth } = getState();
       if (auth.user?.role === 'cashier' && !auth.activeShift) {
         return rejectWithValue('You must open a cashier shift before processing orders. Please open a shift from your profile menu.');
@@ -40,7 +95,6 @@ export const updateOrder = createAsyncThunk(
   'orders/updateOrder',
   async ({ orderId, orderData }, { rejectWithValue, getState }) => {
     try {
-      // Check if user has active cashier shift (only for cashiers)
       const { auth } = getState();
       if (auth.user?.role === 'cashier' && !auth.activeShift) {
         return rejectWithValue('You must open a cashier shift before processing orders. Please open a shift from your profile menu.');
@@ -69,16 +123,7 @@ export const updateOrderStatus = createAsyncThunk(
 const orderSlice = createSlice({
   name: 'order',
   initialState: {
-    currentOrder: {
-      id: null, // null for new order, or the ID of a loaded active order
-      items: [],
-      subtotal: 0,
-      discount: 0,
-      additionalCharges: 0,
-      total: 0,
-      customerName: '',
-      orderType: 'dine-in', // dine-in, takeaway
-    },
+    currentOrder: createEmptyOrder(),
     activeOrders: [],
     orderHistory: [],
     loading: false,
@@ -87,288 +132,375 @@ const orderSlice = createSlice({
   reducers: {
     loadOrderForEdit: (state, action) => {
       const order = action.payload;
-      // Load the order into currentOrder for editing
+      const sourceItems = Array.isArray(order.items) ? order.items : [];
+
+      const positiveItems = sourceItems
+        .filter((item) => toNumber(item.quantity || item.qty, 0) > 0)
+        .map((item, index) => {
+          const qty = toNumber(item.quantity || item.qty, 0);
+          const unitPrice = toNumber(item.price || item.unit_price, 0);
+          const originalPrice = toNumber(item.original_price || item.price || item.unit_price, unitPrice);
+          const preferredBatchId = item.preferred_batch_id || null;
+          return {
+            lineKey: item.id ? `order-item-${item.id}` : `${buildOrderLineKey(item.item_variant_id, unitPrice, preferredBatchId)}:${index}`,
+            itemVariantId: item.item_variant_id,
+            itemName: item.item_name,
+            variantName: item.variant_name,
+            price: unitPrice,
+            originalPrice,
+            quantity: qty,
+            total: qty * unitPrice,
+            barcode: item.barcode,
+            discountSource: item.discount_source || null,
+            discountType: item.item_discount_type || item.discount_type || null,
+            discountValue: toNumber(item.item_discount_value || item.discount_value, 0),
+            discountAmount: toNumber(item.item_discount_amount || item.discount_amount, 0),
+            preferredBatchId,
+            maxVariantStock: null,
+            maxBatchQty: null,
+          };
+        });
+
+      const returnedItems = sourceItems
+        .filter((item) => toNumber(item.quantity || item.qty, 0) < 0)
+        .map((item) => ({
+          source_order_item_id: item.source_order_item_id || item.id || null,
+          item_variant_id: item.item_variant_id,
+          item_name: item.item_name,
+          variant_name: item.variant_name,
+          qty: Math.abs(toNumber(item.quantity || item.qty, 0)),
+          unit_price: toNumber(item.unit_price || item.price, 0),
+          original_price: toNumber(item.original_price || item.unit_price || item.price, 0),
+          batch_allocations: item.batch_allocations || [],
+        }));
+
       state.currentOrder = {
         id: order.id,
-        items: (order.items || []).map(item => ({
-          itemVariantId: item.item_variant_id,
-          itemName: item.item_name,
-          variantName: item.variant_name,
-          price: parseFloat(item.price || item.unit_price),
-          originalPrice: parseFloat(item.original_price || item.price || item.unit_price),
-          quantity: parseFloat(item.quantity || item.qty),
-          total: parseFloat(item.quantity || item.qty) * parseFloat(item.price || item.unit_price),
-          barcode: item.barcode,
-          discountSource: item.discount_source || null,
-          discountType: item.item_discount_type || item.discount_type || null,
-          discountValue: parseFloat(item.item_discount_value || item.discount_value || 0),
-          discountAmount: parseFloat(item.item_discount_amount || item.discount_amount || 0),
-        })),
-        subtotal: (order.items || []).reduce((sum, item) => {
-          return sum + (parseFloat(item.quantity || item.qty) * parseFloat(item.price || item.unit_price));
-        }, 0),
-        discount: parseFloat(order.discount_value || 0),
-        additionalCharges: parseFloat(order.additional_charges || 0),
-        total: parseFloat(order.total_amount || 0),
+        items: positiveItems,
+        subtotal: 0,
+        discount: toNumber(order.discount_value, 0),
+        additionalCharges: toNumber(order.additional_charges, 0),
+        total: toNumber(order.total_amount, 0),
         customerName: order.customer_name || '',
         orderType: order.order_type || 'dine-in',
-        isEditing: true, // Flag to indicate this is an edit
-        originalStatus: order.status, // Store original status
+        isEditing: true,
+        originalStatus: order.status,
+        barcode: order.barcode || null,
+        isReturnOrder: !!order.is_return,
+        originalOrderId: order.original_order_id || null,
+        returnReason: order.credit_reason || '',
+        returnedItems,
+        returnCreditTotal: 0,
       };
+
+      recalculateCurrentOrder(state.currentOrder);
     },
-    addItemToOrder: (state, action) => {
-      const { itemVariant, quantity = 1, globalDiscountSettings, preferredBatchId = null } = action.payload;
-      const existingItem = state.currentOrder.items.find(
-        item => item.itemVariantId === itemVariant.id
-      );
 
-      if (existingItem) {
-        existingItem.quantity += quantity;
-        existingItem.total = existingItem.quantity * existingItem.price;
-      } else {
-        // Ensure price is a valid number
-        const originalPrice = parseFloat(itemVariant.selling_price || itemVariant.sellingPrice);
-        const validOriginalPrice = isNaN(originalPrice) ? 0 : originalPrice;
-        
-        // Determine discount priority:
-        // If global discount is active → no item/brand discounts for any item
-        // If global is OFF → item discount > brand discount
-        let discountSource = null;
-        let discountType = null;
-        let discountValue = 0;
-        let discountAmount = 0;
-        let finalPrice = validOriginalPrice;
+    loadActiveOrder: (state, action) => {
+      const order = action.payload;
+      const sourceItems = Array.isArray(order.items) ? order.items : [];
 
-        const globalActive = globalDiscountSettings && globalDiscountSettings.is_global_discount_active && parseFloat(globalDiscountSettings.global_discount_value) > 0;
-
-        if (globalActive) {
-          // Global discount is ON - no per-item discounts, global applies at order level
-          finalPrice = validOriginalPrice;
-        } else if (itemVariant.is_discount_active && itemVariant.discount_type && parseFloat(itemVariant.discount_value) > 0) {
-          // Item-level discount (highest priority when global is OFF)
-          discountSource = 'item';
-          discountType = itemVariant.discount_type;
-          discountValue = parseFloat(itemVariant.discount_value);
-          if (discountType === 'percentage') {
-            discountAmount = Math.round((validOriginalPrice * discountValue / 100) * 100) / 100;
-          } else {
-            discountAmount = discountValue;
-          }
-          finalPrice = Math.max(0, validOriginalPrice - discountAmount);
-        } else if (itemVariant.brand_discount_active && itemVariant.brand_discount_type && parseFloat(itemVariant.brand_discount_value) > 0) {
-          // Brand-level discount (second priority when global is OFF)
-          discountSource = 'brand';
-          discountType = itemVariant.brand_discount_type;
-          discountValue = parseFloat(itemVariant.brand_discount_value);
-          if (discountType === 'percentage') {
-            discountAmount = Math.round((validOriginalPrice * discountValue / 100) * 100) / 100;
-          } else {
-            discountAmount = discountValue;
-          }
-          finalPrice = Math.max(0, validOriginalPrice - discountAmount);
-        }
-
-        state.currentOrder.items.push({
-          itemVariantId: itemVariant.id,
-          itemName: itemVariant.item_name || itemVariant.itemName,
-          variantName: itemVariant.variant_name || itemVariant.variantName,
-          price: finalPrice,
-          originalPrice: validOriginalPrice,
-          quantity,
-          total: finalPrice * quantity,
-          category: itemVariant.category_name || itemVariant.categoryName,
-          discountSource,
-          discountType,
-          discountValue,
-          discountAmount,
-          // Store raw discount info for recalculation
-          itemDiscountActive: !!itemVariant.is_discount_active,
-          itemDiscountType: itemVariant.discount_type,
-          itemDiscountValue: parseFloat(itemVariant.discount_value) || 0,
-          brandDiscountActive: !!itemVariant.brand_discount_active,
-          brandDiscountType: itemVariant.brand_discount_type,
-          brandDiscountValue: parseFloat(itemVariant.brand_discount_value) || 0,
-          preferredBatchId: preferredBatchId || null,
+      const positiveItems = sourceItems
+        .filter((item) => toNumber(item.quantity || item.qty, 0) > 0)
+        .map((item, index) => {
+          const qty = toNumber(item.quantity || item.qty, 0);
+          const unitPrice = toNumber(item.sell_price || item.unit_price || item.price, 0);
+          const originalPrice = toNumber(item.original_price || item.unit_price || item.price, unitPrice);
+          const preferredBatchId = item.preferred_batch_id || null;
+          return {
+            lineKey: item.id ? `order-item-${item.id}` : `${buildOrderLineKey(item.item_variant_id, unitPrice, preferredBatchId)}:${index}`,
+            itemVariantId: item.item_variant_id,
+            itemName: item.item_name,
+            variantName: item.variant_name,
+            price: unitPrice,
+            originalPrice,
+            quantity: qty,
+            total: qty * unitPrice,
+            category: item.category_name || '',
+            discountSource: item.discount_source || null,
+            discountType: item.item_discount_type || item.discount_type || null,
+            discountValue: toNumber(item.item_discount_value || item.discount_value, 0),
+            discountAmount: toNumber(item.item_discount_amount || item.discount_amount, 0),
+            preferredBatchId,
+            maxVariantStock: null,
+            maxBatchQty: null,
+          };
         });
+
+      const returnedItems = sourceItems
+        .filter((item) => toNumber(item.quantity || item.qty, 0) < 0)
+        .map((item) => ({
+          source_order_item_id: item.source_order_item_id || item.id || null,
+          item_variant_id: item.item_variant_id,
+          item_name: item.item_name,
+          variant_name: item.variant_name,
+          qty: Math.abs(toNumber(item.quantity || item.qty, 0)),
+          unit_price: toNumber(item.unit_price || item.price, 0),
+          original_price: toNumber(item.original_price || item.unit_price || item.price, 0),
+          batch_allocations: item.batch_allocations || [],
+        }));
+
+      state.currentOrder = {
+        id: order.id,
+        items: positiveItems,
+        subtotal: 0,
+        discount: toNumber(order.discount_value, 0),
+        additionalCharges: toNumber(order.additional_charges, 0),
+        total: toNumber(order.total_amount, 0),
+        customerName: order.customer_name || '',
+        orderType: 'dine-in',
+        isEditing: false,
+        originalStatus: order.status,
+        barcode: order.barcode || null,
+        isReturnOrder: !!order.is_return,
+        originalOrderId: order.original_order_id || null,
+        returnReason: order.credit_reason || '',
+        returnedItems,
+        returnCreditTotal: 0,
+      };
+
+      recalculateCurrentOrder(state.currentOrder);
+    },
+
+    startReturnOrder: (state, action) => {
+      const {
+        originalOrderId,
+        customerName = '',
+        returnReason = '',
+        returnedItems = [],
+      } = action.payload || {};
+
+      state.currentOrder = {
+        ...createEmptyOrder(),
+        isReturnOrder: true,
+        originalOrderId: originalOrderId || null,
+        customerName,
+        returnReason,
+        returnedItems: returnedItems.map((item) => ({
+          source_order_item_id: item.source_order_item_id || item.order_item_id || null,
+          item_variant_id: item.item_variant_id,
+          item_name: item.item_name,
+          variant_name: item.variant_name,
+          qty: toNumber(item.qty, 0),
+          unit_price: toNumber(item.unit_price, 0),
+          original_price: toNumber(item.original_price, toNumber(item.unit_price, 0)),
+          batch_allocations: Array.isArray(item.batch_allocations) ? item.batch_allocations : [],
+        })),
+      };
+
+      recalculateCurrentOrder(state.currentOrder);
+    },
+
+    setReturnReason: (state, action) => {
+      state.currentOrder.returnReason = action.payload || '';
+    },
+
+    addItemToOrder: (state, action) => {
+      const {
+        itemVariant,
+        quantity = 1,
+        globalDiscountSettings,
+        preferredBatchId = null,
+        batchRemainingQty = null,
+      } = action.payload;
+
+      const safeQuantity = Math.max(1, parseInt(quantity, 10) || 1);
+      const maxVariantStock = toOptionalNumber(itemVariant.total_stock ?? itemVariant.totalStock);
+      const variantExistingQty = state.currentOrder.items
+        .filter((item) => item.itemVariantId === itemVariant.id)
+        .reduce((sum, item) => sum + toNumber(item.quantity, 0), 0);
+
+      if (maxVariantStock !== null && (variantExistingQty + safeQuantity) > maxVariantStock) {
+        return;
       }
 
-      // Recalculate totals
-      state.currentOrder.subtotal = state.currentOrder.items.reduce(
-        (sum, item) => {
-          const itemTotal = parseFloat(item.total);
-          return sum + (isNaN(itemTotal) ? 0 : itemTotal);
-        }, 0
-      );
-      state.currentOrder.total = 
-        state.currentOrder.subtotal + 
-        state.currentOrder.additionalCharges - 
-        state.currentOrder.discount;
-    },
-    removeItemFromOrder: (state, action) => {
-      const itemVariantId = action.payload;
-      state.currentOrder.items = state.currentOrder.items.filter(
-        item => item.itemVariantId !== itemVariantId
-      );
+      const originalPrice = toNumber(itemVariant.selling_price || itemVariant.sellingPrice, 0);
+      let discountSource = null;
+      let discountType = null;
+      let discountValue = 0;
+      let discountAmount = 0;
+      let finalPrice = originalPrice;
 
-      // Recalculate totals
-      state.currentOrder.subtotal = state.currentOrder.items.reduce(
-        (sum, item) => {
-          const itemTotal = parseFloat(item.total);
-          return sum + (isNaN(itemTotal) ? 0 : itemTotal);
-        }, 0
-      );
-      state.currentOrder.total = 
-        state.currentOrder.subtotal + 
-        state.currentOrder.additionalCharges - 
-        state.currentOrder.discount;
+      if (!state.currentOrder.isReturnOrder) {
+        const globalActive =
+          globalDiscountSettings &&
+          globalDiscountSettings.is_global_discount_active &&
+          toNumber(globalDiscountSettings.global_discount_value, 0) > 0;
+
+        if (!globalActive && itemVariant.is_discount_active && itemVariant.discount_type && toNumber(itemVariant.discount_value, 0) > 0) {
+          discountSource = 'item';
+          discountType = itemVariant.discount_type;
+          discountValue = toNumber(itemVariant.discount_value, 0);
+          discountAmount = discountType === 'percentage'
+            ? Math.round((originalPrice * discountValue / 100) * 100) / 100
+            : discountValue;
+          finalPrice = Math.max(0, originalPrice - discountAmount);
+        } else if (!globalActive && itemVariant.brand_discount_active && itemVariant.brand_discount_type && toNumber(itemVariant.brand_discount_value, 0) > 0) {
+          discountSource = 'brand';
+          discountType = itemVariant.brand_discount_type;
+          discountValue = toNumber(itemVariant.brand_discount_value, 0);
+          discountAmount = discountType === 'percentage'
+            ? Math.round((originalPrice * discountValue / 100) * 100) / 100
+            : discountValue;
+          finalPrice = Math.max(0, originalPrice - discountAmount);
+        }
+      }
+
+      const lineKey = buildOrderLineKey(itemVariant.id, finalPrice, preferredBatchId);
+      const existingItem = state.currentOrder.items.find((item) => item.lineKey === lineKey);
+      const maxBatchQty = preferredBatchId ? toOptionalNumber(batchRemainingQty) : null;
+
+      if (existingItem) {
+        if (maxBatchQty !== null && (toNumber(existingItem.quantity, 0) + safeQuantity) > maxBatchQty) {
+          return;
+        }
+
+        existingItem.quantity += safeQuantity;
+        existingItem.total = existingItem.quantity * existingItem.price;
+        if (existingItem.maxVariantStock === null && maxVariantStock !== null) {
+          existingItem.maxVariantStock = maxVariantStock;
+        }
+        if (existingItem.maxBatchQty === null && maxBatchQty !== null) {
+          existingItem.maxBatchQty = maxBatchQty;
+        }
+        recalculateCurrentOrder(state.currentOrder);
+        return;
+      }
+
+      state.currentOrder.items.push({
+        lineKey,
+        itemVariantId: itemVariant.id,
+        itemName: itemVariant.item_name || itemVariant.itemName,
+        variantName: itemVariant.variant_name || itemVariant.variantName,
+        price: finalPrice,
+        originalPrice,
+        quantity: safeQuantity,
+        total: finalPrice * safeQuantity,
+        category: itemVariant.category_name || itemVariant.categoryName,
+        discountSource,
+        discountType,
+        discountValue,
+        discountAmount,
+        itemDiscountActive: !!itemVariant.is_discount_active,
+        itemDiscountType: itemVariant.discount_type,
+        itemDiscountValue: toNumber(itemVariant.discount_value, 0),
+        brandDiscountActive: !!itemVariant.brand_discount_active,
+        brandDiscountType: itemVariant.brand_discount_type,
+        brandDiscountValue: toNumber(itemVariant.brand_discount_value, 0),
+        preferredBatchId: preferredBatchId || null,
+        maxVariantStock,
+        maxBatchQty,
+      });
+
+      recalculateCurrentOrder(state.currentOrder);
     },
+
+    removeItemFromOrder: (state, action) => {
+      const lineKey = action.payload;
+      state.currentOrder.items = state.currentOrder.items.filter(
+        (item) => item.lineKey !== lineKey
+      );
+      recalculateCurrentOrder(state.currentOrder);
+    },
+
     updateItemQuantity: (state, action) => {
-      const { itemVariantId, quantity } = action.payload;
+      const { lineKey, quantity } = action.payload;
       const item = state.currentOrder.items.find(
-        item => item.itemVariantId === itemVariantId
+        (orderItem) => orderItem.lineKey === lineKey
       );
 
       if (item && quantity > 0) {
         item.quantity = quantity;
-        // Ensure price is a valid number
-        const price = parseFloat(item.price);
-        const validPrice = isNaN(price) ? 0 : price;
-        item.price = validPrice; // Update with valid price
-        item.total = item.quantity * validPrice;
-
-        // Recalculate totals
-        state.currentOrder.subtotal = state.currentOrder.items.reduce(
-          (sum, item) => {
-            const itemTotal = parseFloat(item.total);
-            return sum + (isNaN(itemTotal) ? 0 : itemTotal);
-          }, 0
-        );
-        state.currentOrder.total = 
-          state.currentOrder.subtotal + 
-          state.currentOrder.additionalCharges - 
-          state.currentOrder.discount;
+        item.total = item.quantity * toNumber(item.price, 0);
+        recalculateCurrentOrder(state.currentOrder);
       }
     },
+
     setDiscount: (state, action) => {
-      state.currentOrder.discount = action.payload;
-      state.currentOrder.total = 
-        state.currentOrder.subtotal + 
-        state.currentOrder.additionalCharges - 
-        state.currentOrder.discount;
+      if (state.currentOrder.isReturnOrder) {
+        return;
+      }
+      state.currentOrder.discount = toNumber(action.payload, 0);
+      recalculateCurrentOrder(state.currentOrder);
     },
+
     resetItemDiscount: (state, action) => {
-      const itemVariantId = action.payload;
-      const item = state.currentOrder.items.find(
-        item => item.itemVariantId === itemVariantId
-      );
-      if (item) {
-        const origPrice = item.originalPrice != null ? item.originalPrice : item.price;
-        item.price = origPrice;
-        item.discountSource = null;
-        item.discountType = null;
-        item.discountValue = 0;
-        item.discountAmount = 0;
-        item.total = item.quantity * origPrice;
-
-        // Recalculate totals
-        state.currentOrder.subtotal = state.currentOrder.items.reduce(
-          (sum, item) => {
-            const itemTotal = parseFloat(item.total);
-            return sum + (isNaN(itemTotal) ? 0 : itemTotal);
-          }, 0
-        );
-        state.currentOrder.total = 
-          state.currentOrder.subtotal + 
-          state.currentOrder.additionalCharges - 
-          state.currentOrder.discount;
+      if (state.currentOrder.isReturnOrder) {
+        return;
       }
+
+      const lineKey = action.payload;
+      const item = state.currentOrder.items.find(
+        (orderItem) => orderItem.lineKey === lineKey
+      );
+      if (!item) {
+        return;
+      }
+
+      const originalPrice = item.originalPrice != null ? item.originalPrice : item.price;
+      item.price = originalPrice;
+      item.discountSource = null;
+      item.discountType = null;
+      item.discountValue = 0;
+      item.discountAmount = 0;
+      item.total = item.quantity * originalPrice;
+
+      recalculateCurrentOrder(state.currentOrder);
     },
+
     updateItemDiscount: (state, action) => {
-      const { itemVariantId, discountType, discountValue } = action.payload;
-      const item = state.currentOrder.items.find(
-        item => item.itemVariantId === itemVariantId
-      );
-      if (item) {
-        const originalPrice = item.originalPrice || item.price;
-        let discountAmount = 0;
-        if (discountType === 'percentage') {
-          discountAmount = Math.round((originalPrice * discountValue / 100) * 100) / 100;
-        } else if (discountType === 'fixed') {
-          discountAmount = discountValue;
-        }
-        item.discountSource = 'manual';
-        item.discountType = discountType;
-        item.discountValue = discountValue;
-        item.discountAmount = discountAmount;
-        item.price = Math.max(0, originalPrice - discountAmount);
-        item.total = item.quantity * item.price;
-
-        // Recalculate totals
-        state.currentOrder.subtotal = state.currentOrder.items.reduce(
-          (sum, item) => {
-            const itemTotal = parseFloat(item.total);
-            return sum + (isNaN(itemTotal) ? 0 : itemTotal);
-          }, 0
-        );
-        state.currentOrder.total = 
-          state.currentOrder.subtotal + 
-          state.currentOrder.additionalCharges - 
-          state.currentOrder.discount;
+      if (state.currentOrder.isReturnOrder) {
+        return;
       }
+
+      const { lineKey, discountType, discountValue } = action.payload;
+      const item = state.currentOrder.items.find(
+        (orderItem) => orderItem.lineKey === lineKey
+      );
+      if (!item) {
+        return;
+      }
+
+      const originalPrice = toNumber(item.originalPrice || item.price, 0);
+      const safeDiscountValue = toNumber(discountValue, 0);
+      let discountAmount = 0;
+      if (discountType === 'percentage') {
+        discountAmount = Math.round((originalPrice * safeDiscountValue / 100) * 100) / 100;
+      } else if (discountType === 'fixed') {
+        discountAmount = safeDiscountValue;
+      }
+
+      item.discountSource = 'manual';
+      item.discountType = discountType;
+      item.discountValue = safeDiscountValue;
+      item.discountAmount = discountAmount;
+      item.price = Math.max(0, originalPrice - discountAmount);
+      item.total = item.quantity * item.price;
+
+      recalculateCurrentOrder(state.currentOrder);
     },
+
     setAdditionalCharges: (state, action) => {
-      state.currentOrder.additionalCharges = action.payload;
-      state.currentOrder.total = 
-        state.currentOrder.subtotal + 
-        state.currentOrder.additionalCharges - 
-        state.currentOrder.discount;
+      state.currentOrder.additionalCharges = toNumber(action.payload, 0);
+      recalculateCurrentOrder(state.currentOrder);
     },
+
     setCustomerInfo: (state, action) => {
       const { customerName, orderType } = action.payload;
       state.currentOrder.customerName = customerName || '';
       state.currentOrder.orderType = orderType || 'dine-in';
     },
+
     clearCurrentOrder: (state) => {
-      state.currentOrder = {
-        id: null,
-        items: [],
-        subtotal: 0,
-        discount: 0,
-        additionalCharges: 0,
-        total: 0,
-        customerName: '',
-        orderType: 'dine-in',
-      };
+      state.currentOrder = createEmptyOrder();
     },
-    loadActiveOrder: (state, action) => {
-      // Load an existing active order into currentOrder
-      const order = action.payload;
-      state.currentOrder = {
-        id: order.id,
-        items: (order.items || []).map(item => ({
-          itemVariantId: item.item_variant_id,
-          itemName: item.item_name,
-          variantName: item.variant_name,
-          price: parseFloat(item.sell_price || item.unit_price || 0),
-          quantity: item.qty,
-          total: parseFloat(item.sell_price || item.unit_price || 0) * item.qty,
-          category: item.category_name || '',
-        })),
-        subtotal: parseFloat(order.total_amount || 0) - parseFloat(order.additional_charges || 0) + parseFloat(order.discount_value || 0),
-        discount: parseFloat(order.discount_value || 0),
-        additionalCharges: parseFloat(order.additional_charges || 0),
-        total: parseFloat(order.total_amount || 0),
-        customerName: order.customer_name || '',
-        orderType: 'dine-in',
-      };
-    },
+
     clearError: (state) => {
       state.error = null;
     },
   },
   extraReducers: (builder) => {
     builder
-      // Fetch active orders
       .addCase(fetchActiveOrders.pending, (state) => {
         state.loading = true;
       })
@@ -380,35 +512,22 @@ const orderSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      // Create order
       .addCase(createOrder.pending, (state) => {
         state.loading = true;
       })
       .addCase(createOrder.fulfilled, (state, action) => {
         state.loading = false;
         state.activeOrders.push(action.payload);
-        // Clear current order after successful creation
-        state.currentOrder = {
-          id: null,
-          items: [],
-          subtotal: 0,
-          discount: 0,
-          additionalCharges: 0,
-          total: 0,
-          customerName: '',
-          orderType: 'dine-in',
-        };
+        state.currentOrder = createEmptyOrder();
       })
       .addCase(createOrder.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       })
-      // Update order status
       .addCase(updateOrderStatus.fulfilled, (state, action) => {
-        // action.meta.arg contains the original arguments passed to the thunk
         const { orderId, status } = action.meta.arg;
         const index = state.activeOrders.findIndex(
-          order => order.id === orderId
+          (order) => order.id === orderId
         );
         if (index !== -1) {
           if (status === 'completed' || status === 'cancelled') {
@@ -423,6 +542,9 @@ const orderSlice = createSlice({
 
 export const {
   loadOrderForEdit,
+  loadActiveOrder,
+  startReturnOrder,
+  setReturnReason,
   addItemToOrder,
   removeItemFromOrder,
   updateItemQuantity,
@@ -432,7 +554,6 @@ export const {
   setAdditionalCharges,
   setCustomerInfo,
   clearCurrentOrder,
-  loadActiveOrder,
   clearError,
 } = orderSlice.actions;
 

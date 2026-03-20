@@ -380,6 +380,15 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                           <Typography variant="body2" fontWeight="bold">
                             #{order.id}
                           </Typography>
+                          {order.is_return ? (
+                            <Chip
+                              label="Return"
+                              size="small"
+                              color="secondary"
+                              variant="outlined"
+                              sx={{ mt: 0.5, height: 20, fontSize: '0.7rem' }}
+                            />
+                          ) : null}
                         </TableCell>
                         <TableCell>
                           <Box>
@@ -410,7 +419,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                         </TableCell>
                         <TableCell align="center">
                           <Chip
-                            label={order.status}
+                            label={order.is_return ? `return-${order.status}` : order.status}
                             size="small"
                             color={getStatusColor(order.status)}
                           />
@@ -422,6 +431,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                                 size="small"
                                 color="primary"
                                 onClick={(e) => handleEditOrder(order, e)}
+                                disabled={!!order.is_return}
                               >
                                 <Edit fontSize="small" />
                               </IconButton>
@@ -472,7 +482,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="h6">
-              Order #{selectedOrder?.id} - {editMode ? 'Edit Order' : 'Preview'}
+              Order #{selectedOrder?.id} {selectedOrder?.is_return ? '(Return)' : ''} - {editMode ? 'Edit Order' : 'Preview'}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {!editMode && (
@@ -499,6 +509,15 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                   label={`Status: ${selectedOrder.status}`}
                   color={getStatusColor(selectedOrder.status)}
                 />
+                {selectedOrder.is_return ? (
+                  <Chip label="Return Order" color="secondary" variant="outlined" />
+                ) : null}
+                {selectedOrder.original_order_id ? (
+                  <Chip label={`Original Order: #${selectedOrder.original_order_id}`} variant="outlined" />
+                ) : null}
+                {selectedOrder.credit_reason ? (
+                  <Chip label={`Reason: ${selectedOrder.credit_reason}`} variant="outlined" />
+                ) : null}
                 {selectedOrder.customer_name && (
                   <Chip icon={<Person />} label={selectedOrder.customer_name} />
                 )}

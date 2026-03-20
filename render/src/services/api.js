@@ -335,6 +335,21 @@ export const ordersAPI = {
     });
   },
 
+  searchReturnable: async ({ query = '', limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (query) {
+      params.append('q', query);
+    }
+    if (limit) {
+      params.append('limit', limit);
+    }
+    return makeRequest(`/orders/return-search${params.toString() ? `?${params.toString()}` : ''}`);
+  },
+
+  getReturnableDetails: async (id) => {
+    return makeRequest(`/orders/${id}/returnable-items`);
+  },
+
   delete: async (id) => {
     return makeRequest(`/orders/${id}`, {
       method: 'DELETE',
