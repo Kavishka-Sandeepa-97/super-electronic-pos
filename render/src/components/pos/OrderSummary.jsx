@@ -504,7 +504,7 @@ const OrderSummary = ({ view = 'full' }) => {
     try {
       const storeInfo = {
         name: 'Super Glow',
-        address: '275/B/4 Galahitiyawa,Ganemulla.',
+        address: '275/B/5 Galahitiyawa,Ganemulla.',
         phone: '071 160 0925 / 071 326 0021 (whatsapp)',
         receiptFooter: 'Thank you Come Again..!',
         currencySymbol: 'Rs',
