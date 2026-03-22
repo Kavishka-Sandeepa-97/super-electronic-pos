@@ -209,6 +209,14 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
 };
 
 const htmlPrintService = {
+  canDirectPrint: () => {
+    return !!getIpcRenderer();
+  },
+
+  getReceiptHTML: (order = {}, storeInfo = {}) => {
+    return buildReceiptHTML(order, storeInfo);
+  },
+
   printBillHTML: async (order = {}, storeInfo = {}) => {
     try {
       const html = buildReceiptHTML(order, storeInfo);
@@ -272,12 +280,18 @@ const htmlPrintService = {
   // Print barcode labels for XP-H500B label printer (35mm x 20mm, 3 columns)
   printBarcodeLabels: async (item, quantity = 1, printerName = null) => {
     try {
+      const ipcRenderer = getIpcRenderer();
       const barcode = item.barcode || '';
       const price = parseFloat(item.selling_price || item.price || 0);
       const shopName = 'SUPER GLOW';
       
-      // Get printer name from localStorage if not provided
-      const labelPrinter = printerName || localStorage.getItem('barcodePrinter') || 'Xprinter XP-H500B';
+      // Persist a default barcode printer when user has not configured one yet
+      const configuredBarcodePrinter = localStorage.getItem('barcodePrinter');
+      const defaultBarcodePrinter = 'Xprinter XP-H500B';
+      const labelPrinter = printerName || configuredBarcodePrinter || defaultBarcodePrinter;
+      if (!configuredBarcodePrinter) {
+        localStorage.setItem('barcodePrinter', defaultBarcodePrinter);
+      }
       
       // Label dimensions: 35mm x 20mm, 3 columns per row
       // Total width: ~108mm (4.25 in), height per label: ~20mm (0.80 in)
@@ -415,17 +429,21 @@ const htmlPrintService = {
           </head>
           <body>
             ${labelsHtml}
-            <script>
-              // Auto print after short delay
-              window.onload = function() {
-                setTimeout(function() {
-                  window.print();
-                }, 500);
-              };
-            </script>
           </body>
         </html>
       `;
+
+      // In desktop app, use Electron silent print to avoid the print dialog.
+      if (ipcRenderer) {
+        const result = await ipcRenderer.invoke('print-receipt', {
+          content: html,
+          printerName: labelPrinter,
+        });
+
+        return result.success
+          ? { success: true, message: `Printing ${quantity} barcode label(s)` }
+          : { success: false, message: result.message || result.error || 'Barcode print failed' };
+      }
 
       // Open print window
       const printWindow = window.open('', '_blank', 'width=450,height=300');
@@ -436,6 +454,13 @@ const htmlPrintService = {
       printWindow.document.open();
       printWindow.document.write(html);
       printWindow.document.close();
+
+      setTimeout(() => {
+        try {
+          printWindow.print();
+          printWindow.close();
+        } catch (_error) {}
+      }, 400);
 
       return { success: true, message: `Printing ${quantity} barcode label(s)` };
     } catch (error) {

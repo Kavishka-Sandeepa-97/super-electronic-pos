@@ -3,3 +3,7 @@ eken thami sell-price-migration eka haduve (meka hari giyoth meka thami latestma
 
 
 sell prise histry table eka remove karanna thiyenva saha best discount implement karanna one
+
+********************************
+line number 542 for printer data
+********************************

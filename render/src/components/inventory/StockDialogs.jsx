@@ -476,57 +476,110 @@ export const BarcodePrintDialog = ({
   barcodePrintQuantity,
   setBarcodePrintQuantity,
   onPrint,
-}) => (
-  <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-    <DialogTitle>Print Barcode Labels</DialogTitle>
-    <DialogContent>
-      {selectedItem && (
-        <Box sx={{ pt: 2 }}>
-          <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-            <Typography variant="subtitle1" fontWeight="bold">
-              {selectedItem.item_name || selectedItem.name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {selectedItem.variant_name || selectedItem.variant}
-            </Typography>
-            <Box sx={{ mt: 1, display: 'flex', gap: 2 }}>
-              <Typography variant="body2">
-                <strong>Barcode:</strong> {selectedItem.barcode}
-              </Typography>
-              <Typography variant="body2">
-                <strong>Price:</strong> Rs.{' '}
-                {parseFloat(selectedItem.selling_price || selectedItem.price || 0).toFixed(2)}
-              </Typography>
+}) => {
+  const [confirmLargeQtyOpen, setConfirmLargeQtyOpen] = React.useState(false);
+  const quantityNumber = parseInt(barcodePrintQuantity, 10);
+  const safeQuantity = Number.isFinite(quantityNumber) ? quantityNumber : 1;
+
+  const handleClose = () => {
+    setConfirmLargeQtyOpen(false);
+    onClose();
+  };
+
+  const handleRequestPrint = () => {
+    if (!selectedItem) return;
+    if (safeQuantity > 50) {
+      setConfirmLargeQtyOpen(true);
+      return;
+    }
+    onPrint();
+  };
+
+  const handleConfirmLargePrint = () => {
+    setConfirmLargeQtyOpen(false);
+    onPrint();
+  };
+
+  return (
+    <>
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Print Barcode Labels</DialogTitle>
+        <DialogContent>
+          {selectedItem && (
+            <Box sx={{ pt: 2 }}>
+              <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                <Typography variant="subtitle1" fontWeight="bold">
+                  {selectedItem.item_name || selectedItem.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedItem.variant_name || selectedItem.variant}
+                </Typography>
+                <Box sx={{ mt: 1, display: 'flex', gap: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Barcode:</strong> {selectedItem.barcode}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Price:</strong> Rs.{' '}
+                    {parseFloat(selectedItem.selling_price || selectedItem.price || 0).toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+              <TextField
+                fullWidth
+                label="Number of Labels"
+                type="number"
+                value={barcodePrintQuantity}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setBarcodePrintQuantity('');
+                  } else {
+                    const num = parseInt(val, 10);
+                    if (!isNaN(num)) setBarcodePrintQuantity(Math.min(500, Math.max(1, num)));
+                  }
+                }}
+                onBlur={() => {
+                  if (!barcodePrintQuantity || barcodePrintQuantity < 1) setBarcodePrintQuantity(1);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleRequestPrint();
+                  }
+                }}
+                inputProps={{ min: 1, max: 500 }}
+                helperText="Labels will be printed in 3-column layout (35mm x 20mm each)"
+              />
             </Box>
-          </Box>
-          <TextField
-            fullWidth
-            label="Number of Labels"
-            type="number"
-            value={barcodePrintQuantity}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val === '') {
-                setBarcodePrintQuantity('');
-              } else {
-                const num = parseInt(val);
-                if (!isNaN(num)) setBarcodePrintQuantity(Math.min(500, Math.max(1, num)));
-              }
-            }}
-            onBlur={() => {
-              if (!barcodePrintQuantity || barcodePrintQuantity < 1) setBarcodePrintQuantity(1);
-            }}
-            inputProps={{ min: 1, max: 500 }}
-            helperText="Labels will be printed in 3-column layout (35mm x 20mm each)"
-          />
-        </Box>
-      )}
-    </DialogContent>
-    <DialogActions>
-      <Button onClick={onClose}>Cancel</Button>
-      <Button variant="contained" color="primary" onClick={onPrint}>
-        Print Labels
-      </Button>
-    </DialogActions>
-  </Dialog>
-);
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose}>Cancel</Button>
+          <Button variant="contained" color="primary" onClick={handleRequestPrint}>
+            Print Labels
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={confirmLargeQtyOpen}
+        onClose={() => setConfirmLargeQtyOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Large Label Print</DialogTitle>
+        <DialogContent>
+          <Typography>
+            You are about to print {safeQuantity} labels. Do you want to continue?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmLargeQtyOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="primary" onClick={handleConfirmLargePrint}>
+            Yes, Print
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
