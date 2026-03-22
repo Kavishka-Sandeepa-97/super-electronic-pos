@@ -23,7 +23,6 @@ import {
   DialogActions,
   Alert,
   CircularProgress,
-  Snackbar,
   FormControlLabel,
   Checkbox,
   FormGroup,
@@ -35,7 +34,6 @@ import {
   ShoppingCart,
   Category,
   Person,
-  CheckCircle,
   LocalOffer,
 } from '@mui/icons-material';
 import {
@@ -81,13 +79,12 @@ const POSInterface = () => {
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebounce(searchInput, 300);
   const [posPage, setPosPage] = useState(0);
-  const [posRowsPerPage, setPosRowsPerPage] = useState(24);
+  const [posRowsPerPage, setPosRowsPerPage] = useState(10);
   const [activeOrdersOpen, setActiveOrdersOpen] = useState(false);
   
   // Barcode scanner states
   const [barcodeNotFoundOpen, setBarcodeNotFoundOpen] = useState(false);
   const [failedBarcode, setFailedBarcode] = useState('');
-  const [successMessage, setSuccessMessage] = useState(null);
   const [orderHistoryOpen, setOrderHistoryOpen] = useState(false);
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
 
@@ -148,13 +145,9 @@ const POSInterface = () => {
       preferredBatchId,
       batchRemainingQty: hasBatchLimit ? parsedBatchLimit : null,
     }));
-    setSuccessMessage({
-      name: itemVariant.item_name,
-      variant: itemVariant.variant_name,
-      barcode: barcode || itemVariant.barcode || '',
+    toast.success(`${itemVariant.item_name} added to order`, {
+      autoClose: 900,
     });
-    toast.success(`${itemVariant.item_name} added to order`);
-    setTimeout(() => setSuccessMessage(null), 2000);
   }, [dispatch, globalDiscountSettings, currentOrder.items]);
 
   // Handle batch dialog confirm
@@ -312,85 +305,85 @@ const POSInterface = () => {
         </Alert>
       )}
 
-      {/* Success notification */}
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={2000}
-        onClose={() => setSuccessMessage(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            bgcolor: '#4CAF50',
-            color: 'white',
-            p: 2,
-            borderRadius: 1,
-            boxShadow: 3,
-          }}
-        >
-          <CheckCircle />
-          <Box>
-            <Typography variant="subtitle2" fontWeight="bold">
-              {successMessage?.name}
-            </Typography>
-            <Typography variant="caption">
-              {successMessage?.variant} - {successMessage?.barcode}
-            </Typography>
-          </Box>
-        </Box>
-      </Snackbar>
-
           {/* Current order indicator moved into OrderSummary */}
 
       {/* Main Content */}
-      <Grid container sx={{ flexGrow: 1 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '1.1fr 1.2fr 0.7fr' },
+          gap: 1.5,
+          px: 1.5,
+          pb: 1.5,
+          pt: 0.5,
+          minHeight: 0,
+        }}
+      >
 
-        {/* Content Area */}
-        <Grid item xs={8} sx={{ display: 'flex', flexDirection: 'column' }}>
+        {/* Products Area */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #e0e0e0', bgcolor: '#fff' }}>
           
-          {/* Search Bar + Active Orders Button (button on right) */}
-          <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ flexGrow: 1 }}>
-              <TextField
-                fullWidth
-                placeholder="Search items... (or use barcode scanner)"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 25,
-                  },
-                }}
-              />
-            </Box>
+          {/* Controls layout: 4 rows */}
+          <Box sx={{ px: 2, pt: 2, pb: 1.8, display: 'flex', flexDirection: 'column', gap: 1.35 }}>
+            {/* Row 1: Search */}
+            <TextField
+              fullWidth
+              placeholder="Search items... (or use barcode scanner)"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 25,
+                },
+              }}
+            />
 
-            {(activeOrders || []).length > 0 ? (
-              <Badge
-                badgeContent={activeOrders.length}
-                color="error"
-                overlap="circular"
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                sx={{
-                  '& .MuiBadge-badge': {
-                    fontSize: '0.7rem',
-                    height: 25,
-                    minWidth: 25,
-                    borderRadius: '50%',
-                    transform: 'translate(16px, -16px)',
-                    padding: 0,
-                  }
-                }}
-              >
+            {/* Row 2: Active Orders / Order History / Return */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+              {(activeOrders || []).length > 0 ? (
+                <Badge
+                  badgeContent={activeOrders.length}
+                  color="error"
+                  overlap="circular"
+                  anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  sx={{
+                    '& .MuiBadge-badge': {
+                      fontSize: '0.7rem',
+                      height: 24,
+                      minWidth: 24,
+                      borderRadius: '50%',
+                      transform: 'translate(12px, -12px)',
+                      padding: 0,
+                    }
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    onClick={() => setActiveOrdersOpen(true)}
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      background: 'black',
+                      color: 'white',
+                      '&:hover': { background: '#111' },
+                      height: 42,
+                      px: 2,
+                      fontSize: '0.9rem',
+                      fontWeight: 700,
+                      borderRadius: 15,
+                    }}
+                  >
+                    Active Orders
+                  </Button>
+                </Badge>
+              ) : (
                 <Button
                   variant="contained"
                   onClick={() => setActiveOrdersOpen(true)}
@@ -399,153 +392,147 @@ const POSInterface = () => {
                     background: 'black',
                     color: 'white',
                     '&:hover': { background: '#111' },
-                    height: 40,
-                    px: 4,
+                    height: 42,
+                    px: 3.8,
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
                     borderRadius: 15,
                   }}
                 >
                   Active Orders
                 </Button>
-              </Badge>
-            ) : (
+              )}
+
               <Button
                 variant="contained"
-                onClick={() => setActiveOrdersOpen(true)}
+                onClick={() => setOrderHistoryOpen(true)}
                 sx={{
                   whiteSpace: 'nowrap',
-                  background: 'black',
+                  background: '#2196F3',
                   color: 'white',
-                  '&:hover': { background: '#111' },
-                  height: 40,
-                  px: 4,
+                  '&:hover': { background: '#1976D2' },
+                  height: 42,
+                  px: 3.2,
+                  fontSize: '0.9rem',
+                  fontWeight: 700,
                   borderRadius: 15,
                 }}
               >
-                Active Orders
+                Order History
               </Button>
-            )}
 
-            <Button
-              variant="contained"
-              onClick={() => setOrderHistoryOpen(true)}
-              sx={{
-                whiteSpace: 'nowrap',
-                background: '#2196F3',
-                color: 'white',
-                '&:hover': { background: '#1976D2' },
-                height: 40,
-                px: 4,
-                borderRadius: 15,
-              }}
-            >
-              Order History
-            </Button>
+              <Button
+                variant="contained"
+                onClick={() => setReturnDialogOpen(true)}
+                sx={{
+                  whiteSpace: 'nowrap',
+                  background: '#E91E63',
+                  color: 'white',
+                  '&:hover': { background: '#C2185B' },
+                  height: 42,
+                  px: 3.8,
+                  fontSize: '0.9rem',
+                  fontWeight: 700,
+                  borderRadius: 15,
+                }}
+              >
+                Return
+              </Button>
+            </Box>
 
-            <Button
-              variant="contained"
-              onClick={() => setReturnDialogOpen(true)}
-              sx={{
-                whiteSpace: 'nowrap',
-                background: '#E91E63',
-                color: 'white',
-                '&:hover': { background: '#C2185B' },
-                height: 40,
-                px: 4,
-                borderRadius: 15,
-              }}
-            >
-              Return
-            </Button>
-          </Box>
-
-          {/* Category + Brand + Gender Filters */}
-          <Box sx={{ px: 2, pb: 2, display: 'flex', flexWrap: 'nowrap', gap: 1.5, alignItems: 'center' }}>
-            <CategoryMenu
-              categories={categories}
-              selectedCategory={selectedCategory}
-              onCategorySelect={(category) => {
-                dispatch(setSelectedCategory(category?.id || null));
-              }}
-              containerSx={{ p: 0, borderBottom: 'none' }}
-            />
-            <BrandMenu
-              brands={brands}
-              selectedBrand={selectedBrand}
-              onBrandSelect={(brand) => dispatch(setSelectedBrand(brand))}
-            />
-
-            <FormGroup row sx={{ ml: 0.5, gap: 0.5, alignItems: 'center' }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedGender === 'ALL'}
-                    onChange={() => dispatch(setSelectedGender('ALL'))}
-                    size="small"
-                    sx={{ p: 0.5 }}
-                  />
-                }
-                label="All"
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+            {/* Row 3: Category / Brand */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+              <CategoryMenu
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onCategorySelect={(category) => {
+                  dispatch(setSelectedCategory(category?.id || null));
+                }}
+                containerSx={{ p: 0, borderBottom: 'none' }}
               />
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedGender === 'MEN'}
-                    onChange={() => dispatch(setSelectedGender('MEN'))}
-                    size="small"
-                    sx={{ p: 0.5 }}
-                  />
-                }
-                label="Men"
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
+              <BrandMenu
+                brands={brands}
+                selectedBrand={selectedBrand}
+                onBrandSelect={(brand) => dispatch(setSelectedBrand(brand))}
               />
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedGender === 'WOMEN'}
-                    onChange={() => dispatch(setSelectedGender('WOMEN'))}
-                    size="small"
-                    sx={{ p: 0.5 }}
-                  />
-                }
-                label="Women"
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
-              />
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={selectedGender === 'UNISEX'}
-                    onChange={() => dispatch(setSelectedGender('UNISEX'))}
-                    size="small"
-                    sx={{ p: 0.5 }}
-                  />
-                }
-                label="Unisex"
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.8rem' } }}
-              />
-            </FormGroup>
+            </Box>
 
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => {
-                dispatch(resetFilters());
-                setSearchInput('');
-              }}
-              sx={{
-                height: 32,
-                borderRadius: 12,
-                textTransform: 'none',
-                fontWeight: 600,
-                fontSize: '0.8rem',
-              }}
-            >
-              Reset Filters
-            </Button>
+            {/* Row 4: Gender + Reset */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, flexWrap: 'wrap' }}>
+              <FormGroup row sx={{ ml: 0, gap: 0.7, alignItems: 'center' }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={selectedGender === 'ALL'}
+                      onChange={() => dispatch(setSelectedGender('ALL'))}
+                      size="small"
+                      sx={{ p: 0.55 }}
+                    />
+                  }
+                  label="All"
+                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.84rem' } }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={selectedGender === 'MEN'}
+                      onChange={() => dispatch(setSelectedGender('MEN'))}
+                      size="small"
+                      sx={{ p: 0.55 }}
+                    />
+                  }
+                  label="Men"
+                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.84rem' } }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={selectedGender === 'WOMEN'}
+                      onChange={() => dispatch(setSelectedGender('WOMEN'))}
+                      size="small"
+                      sx={{ p: 0.55 }}
+                    />
+                  }
+                  label="Women"
+                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.84rem' } }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={selectedGender === 'UNISEX'}
+                      onChange={() => dispatch(setSelectedGender('UNISEX'))}
+                      size="small"
+                      sx={{ p: 0.55 }}
+                    />
+                  }
+                  label="Unisex"
+                  sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.84rem' } }}
+                />
+              </FormGroup>
+
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  dispatch(resetFilters());
+                  setSearchInput('');
+                }}
+                sx={{
+                  height: 36,
+                  borderRadius: 12,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  px: 2,
+                }}
+              >
+                Reset Filters
+              </Button>
+            </Box>
           </Box>
 
           {/* Items Grid */}
-          <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
+          <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2, minHeight: 0 }}>
             <Grid container spacing={1.5}>
               {(filteredItems || []).slice(posPage * posRowsPerPage, posPage * posRowsPerPage + posRowsPerPage).map((item) => {
                 if (!item) return null;
@@ -555,7 +542,7 @@ const POSInterface = () => {
                   <Grid item xs={12} key={item.id}>
                     <Card
                       sx={{
-                        minHeight: 110,
+                        height: 136,
                         display: 'flex',
                         flexDirection: 'row',
                         alignItems: 'stretch',
@@ -607,7 +594,7 @@ const POSInterface = () => {
                           </Typography>
                         </Tooltip>
 
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
+                        <Typography variant="body2" color="text.secondary" noWrap sx={{ mb: 0.75 }}>
                           {item.variant_name || 'Default Variant'}
                         </Typography>
 
@@ -696,19 +683,24 @@ const POSInterface = () => {
                 onPageChange={(_, newPage) => { setPosPage(newPage); }}
                 rowsPerPage={posRowsPerPage}
                 onRowsPerPageChange={(e) => { setPosRowsPerPage(parseInt(e.target.value, 10)); setPosPage(0); }}
-                rowsPerPageOptions={[12, 24, 48]}
+                rowsPerPageOptions={[10, 24, 48]}
                 labelRowsPerPage="Per page:"
                 sx={{ borderTop: '1px solid', borderColor: 'divider', mt: 1 }}
               />
             )}
           </Box>
-        </Grid>
+        </Box>
 
-        {/* Order Details */}
-        <Grid item xs={4} sx={{ borderLeft: '1px solid #e0e0e0', p: 2, position: 'sticky', top: 50, height: '100vh', overflowY: 'auto' }}>
-          <OrderSummary />
-        </Grid>
-      </Grid>
+        {/* Added Items (Middle) */}
+        <Box sx={{ minHeight: 0 }}>
+          <OrderSummary view="items" />
+        </Box>
+
+        {/* Totals + Actions (Right) */}
+        <Box sx={{ minHeight: 0 }}>
+          <OrderSummary view="totals" />
+        </Box>
+      </Box>
 
       {/* Active Orders dialog */}
       <ActiveOrdersDialog

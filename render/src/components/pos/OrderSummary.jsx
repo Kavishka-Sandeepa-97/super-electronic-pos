@@ -56,7 +56,7 @@ import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
 import SetActiveDialog from './SetActiveDialog';
 
-const OrderSummary = () => {
+const OrderSummary = ({ view = 'full' }) => {
   const dispatch = useDispatch();
   const { currentOrder, loading } = useSelector((state) => state.order);
   const { user, activeShift } = useSelector((state) => state.auth);
@@ -67,6 +67,7 @@ const OrderSummary = () => {
   const [amountPaid, setAmountPaid] = useState('');
   const [discountType, setDiscountType] = useState('fixed');
   const [discountValue, setDiscountValue] = useState('');
+  const [showDiscountControls, setShowDiscountControls] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
   const [editDiscountItem, setEditDiscountItem] = useState(null);
   const [editDiscountType, setEditDiscountType] = useState('percentage');
@@ -75,12 +76,21 @@ const OrderSummary = () => {
 
   const hasReturnItems = currentOrder.isReturnOrder && (currentOrder.returnedItems || []).length > 0;
   const hasOrderContent = currentOrder.items.length > 0 || hasReturnItems;
+  const showItemsSection = view === 'full' || view === 'items';
+  const showTotalsSection = view === 'full' || view === 'totals';
   const requiresCashTender = currentOrder.total > 0;
   const paidAmount = parseFloat(amountPaid || 0) || 0;
   const change = paidAmount - currentOrder.total;
 
   const dialogTotal = parseFloat(completedOrder?.total || 0) || 0;
   const dialogChange = paidAmount - dialogTotal;
+  const isGlobalDiscountActive = !!globalDiscountSettings?.is_global_discount_active;
+
+  const globalDiscountIndicatorLabel = isGlobalDiscountActive
+    ? `Auto: ${globalDiscountSettings?.global_discount_type === 'percentage'
+      ? `${parseFloat(globalDiscountSettings?.global_discount_value || 0)}%`
+      : `Rs. ${Number(parseFloat(globalDiscountSettings?.global_discount_value || 0) || 0).toFixed(2)}`}`
+    : '';
 
   const effectiveOrderDiscount = useMemo(() => {
     if (currentOrder.isReturnOrder) {
@@ -208,6 +218,21 @@ const OrderSummary = () => {
     return `Rs. ${Number.isFinite(parsedPrice) ? parsedPrice.toFixed(2) : '0.00'}`;
   };
 
+  const getDiscountVisual = (discountSource) => {
+    switch (discountSource) {
+      case 'item':
+        return { border: '#ef5350', bg: '#ffebee', priceBg: '#ffebee', priceColor: '#b71c1c' };
+      case 'brand':
+        return { border: '#ab47bc', bg: '#f3e5f5', priceBg: '#f3e5f5', priceColor: '#6a1b9a' };
+      case 'manual':
+        return { border: '#29b6f6', bg: '#e1f5fe', priceBg: '#e1f5fe', priceColor: '#01579b' };
+      case 'global':
+        return { border: '#ffb300', bg: '#fff8e1', priceBg: '#fff8e1', priceColor: '#e65100' };
+      default:
+        return { border: '#e0e0e0', bg: '#ffffff', priceBg: '#e3f2fd', priceColor: '#0d47a1' };
+    }
+  };
+
   const isValidDecimalInput = (value) => value === '' || /^\d*\.?\d{0,2}$/.test(value);
 
   const mapOrderItems = (items) => items.map((item) => ({
@@ -234,6 +259,7 @@ const OrderSummary = () => {
   const resetOrderUiState = () => {
     setDiscountType('fixed');
     setDiscountValue('');
+    setShowDiscountControls(false);
     setAmountPaid('');
     setEditDiscountItem(null);
     setEditDiscountValue('');
@@ -507,9 +533,16 @@ const OrderSummary = () => {
 
   return (
     <>
-      <Card sx={{ height: '93vh', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+      <Card
+        sx={{
+          height: '93vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+        }}
+      >
         <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-          {user?.role === 'cashier' && !activeShift && (
+          {showItemsSection && user?.role === 'cashier' && !activeShift && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="body2">
                 <strong>No Active Shift:</strong> You must open a cashier shift to process orders.
@@ -517,7 +550,7 @@ const OrderSummary = () => {
             </Alert>
           )}
 
-          {currentOrder.isEditing && (
+          {showItemsSection && currentOrder.isEditing && (
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
                 <strong>Editing Order #{currentOrder.id}</strong> - Make changes and click "Update Order" to save.
@@ -525,7 +558,7 @@ const OrderSummary = () => {
             </Alert>
           )}
 
-          {currentOrder.isReturnOrder && (
+          {showItemsSection && currentOrder.isReturnOrder && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="body2">
                 <strong>Return Order Mode</strong>
@@ -534,7 +567,7 @@ const OrderSummary = () => {
             </Alert>
           )}
 
-          {currentOrder.id && (
+          {showItemsSection && currentOrder.id && (
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Typography variant="subtitle1" fontWeight="bold">
                 Order #{currentOrder.id}
@@ -546,7 +579,8 @@ const OrderSummary = () => {
             </Box>
           )}
 
-          <Box className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
+          {showItemsSection && (
+            <Box className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
             {currentOrder.items.length === 0 ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'text.secondary' }}>
                 <ShoppingCart sx={{ fontSize: 60, mb: 2, opacity: 0.5 }} />
@@ -554,22 +588,31 @@ const OrderSummary = () => {
               </Box>
             ) : (
               <List dense>
-                {currentOrder.items.map((item, index) => (
+                {currentOrder.items.map((item, index) => {
+                  const discountVisual = !currentOrder.isReturnOrder && item.discountSource
+                    ? getDiscountVisual(item.discountSource)
+                    : getDiscountVisual(null);
+
+                  return (
                   <ListItem
                     key={item.lineKey || `${item.itemVariantId}-${index}`}
                     sx={{
-                      border: '1px solid #e0e0e0',
+                      border: `2px solid ${discountVisual.border}`,
                       borderRadius: 1,
-                      mb: 0.5,
-                      p: 0.5,
-                      bgcolor: 'background.paper',
-                      minHeight: '48px',
+                      mb: 0.8,
+                      p: 0.9,
+                      bgcolor: discountVisual.bg,
+                      height: 124,
+                      overflow: 'hidden',
+                      '& .MuiListItemText-root': {
+                        m: 0,
+                      },
                     }}
                   >
                     <ListItemText
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                          <Typography variant="subtitle2" fontWeight="bold" sx={{ lineHeight: 1.2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                          <Typography variant="subtitle2" fontWeight="bold" noWrap sx={{ lineHeight: 1.2, flex: 1, minWidth: 0 }}>
                             {item.itemName} {item.variantName && <span style={{ fontWeight: 'normal', color: '#666' }}>({item.variantName})</span>}
                           </Typography>
                           {item.discountSource && !currentOrder.isReturnOrder && (
@@ -578,7 +621,7 @@ const OrderSummary = () => {
                               label={`${item.discountSource === 'item' ? 'Item' : item.discountSource === 'brand' ? 'Brand' : item.discountSource === 'manual' ? 'Manual' : 'Global'}: ${item.discountType === 'percentage' ? item.discountValue + '%' : 'Rs.' + item.discountValue}`}
                               size="small"
                               color={item.discountSource === 'item' ? 'error' : item.discountSource === 'brand' ? 'secondary' : item.discountSource === 'manual' ? 'info' : 'warning'}
-                              sx={{ height: 18, fontSize: '0.6rem', '& .MuiChip-icon': { ml: '2px' } }}
+                              sx={{ height: 22, fontSize: '0.72rem', '& .MuiChip-icon': { ml: '4px' } }}
                             />
                           )}
                         </Box>
@@ -590,23 +633,54 @@ const OrderSummary = () => {
                               {formatPrice(item.originalPrice)}
                             </Typography>
                           )}
-                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                          <Typography variant="caption" noWrap sx={{ color: 'text.secondary', display: 'block' }}>
                             Unit: {formatPrice(item.price)}{item.preferredBatchId ? ` | Batch #${item.preferredBatchId}` : ''}
                           </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <IconButton size="small" onClick={() => handleQuantityChange(item, item.quantity - 1)} sx={{ p: 0.5 }}>
-                                <Remove fontSize="small" />
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.9 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleQuantityChange(item, item.quantity - 1)}
+                                sx={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 1.2,
+                                  border: '1px solid #90a4ae',
+                                  bgcolor: '#eceff1',
+                                }}
+                              >
+                                <Remove sx={{ fontSize: '1.1rem', fontWeight: 700 }} />
                               </IconButton>
-                              <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
+                              <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '1rem', minWidth: 18, textAlign: 'center' }}>
                                 {item.quantity}
                               </Typography>
-                              <IconButton size="small" onClick={() => handleQuantityChange(item, item.quantity + 1)} sx={{ p: 0.5 }}>
-                                <Add fontSize="small" />
+                              <IconButton
+                                size="small"
+                                onClick={() => handleQuantityChange(item, item.quantity + 1)}
+                                sx={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 1.2,
+                                  border: '1px solid #66bb6a',
+                                  bgcolor: '#e8f5e9',
+                                }}
+                              >
+                                <Add sx={{ fontSize: '1.1rem', fontWeight: 700 }} />
                               </IconButton>
                             </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+                              <Typography
+                                variant="body2"
+                                fontWeight="bold"
+                                sx={{
+                                  fontSize: '1rem',
+                                  px: 1.1,
+                                  py: 0.4,
+                                  borderRadius: 1,
+                                  bgcolor: discountVisual.priceBg,
+                                  color: discountVisual.priceColor,
+                                }}
+                              >
                                 {formatPrice(item.total)}
                               </Typography>
                               <Tooltip title={currentOrder.isReturnOrder ? 'Disabled for return orders' : 'Edit Discount'}>
@@ -620,9 +694,9 @@ const OrderSummary = () => {
                                       setEditDiscountType(item.discountType || 'percentage');
                                       setEditDiscountValue(item.discountValue || '');
                                     }}
-                                    sx={{ p: 0.5 }}
+                                    sx={{ width: 34, height: 34, borderRadius: 1, bgcolor: '#e3f2fd' }}
                                   >
-                                    <EditIcon sx={{ fontSize: '0.9rem' }} />
+                                    <EditIcon sx={{ fontSize: '1rem' }} />
                                   </IconButton>
                                 </span>
                               </Tooltip>
@@ -633,14 +707,19 @@ const OrderSummary = () => {
                                     color="warning"
                                     disabled={currentOrder.isReturnOrder || !item.discountSource}
                                     onClick={() => dispatch(resetItemDiscount(item.lineKey))}
-                                    sx={{ p: 0.5 }}
+                                    sx={{ width: 34, height: 34, borderRadius: 1, bgcolor: '#fff8e1' }}
                                   >
-                                    <Refresh sx={{ fontSize: '0.9rem' }} />
+                                    <Refresh sx={{ fontSize: '1rem' }} />
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                              <IconButton size="small" color="error" onClick={() => dispatch(removeItemFromOrder(item.lineKey))} sx={{ p: 0.5 }}>
-                                <Delete fontSize="small" />
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => dispatch(removeItemFromOrder(item.lineKey))}
+                                sx={{ width: 34, height: 34, borderRadius: 1, bgcolor: '#ffebee' }}
+                              >
+                                <Delete sx={{ fontSize: '1rem' }} />
                               </IconButton>
                             </Box>
                           </Box>
@@ -694,12 +773,14 @@ const OrderSummary = () => {
                       }
                     />
                   </ListItem>
-                ))}
+                );
+                })}
               </List>
             )}
-          </Box>
+            </Box>
+          )}
 
-          {hasReturnItems && (
+          {showItemsSection && hasReturnItems && (
             <Box sx={{ mt: 1, p: 1, border: '1px dashed #d81b60', borderRadius: 1, bgcolor: '#fff4f8' }}>
               <Typography variant="subtitle2" sx={{ color: '#ad1457', mb: 0.5 }}>
                 Returned Items Credit
@@ -727,7 +808,7 @@ const OrderSummary = () => {
             </Box>
           )}
 
-          {hasOrderContent && (
+          {showTotalsSection && hasOrderContent && (
             <>
               <Divider sx={{ my: 2 }} />
               <Box>
@@ -774,6 +855,33 @@ const OrderSummary = () => {
                 */}
 
                 {!currentOrder.isReturnOrder && (
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: showDiscountControls ? 1 : 2 }}>
+                    <Button
+                      size="small"
+                      variant={showDiscountControls ? 'contained' : 'outlined'}
+                      onClick={() => setShowDiscountControls((prev) => !prev)}
+                      sx={{
+                        textTransform: 'none',
+                        borderRadius: 2,
+                        fontWeight: 700,
+                        px: 1.5,
+                      }}
+                    >
+                      {showDiscountControls ? 'Hide Discount' : 'Global Discount'}
+                    </Button>
+
+                    {isGlobalDiscountActive && (
+                      <Chip
+                        label={globalDiscountIndicatorLabel}
+                        size="small"
+                        color="warning"
+                        sx={{ fontWeight: 700 }}
+                      />
+                    )}
+                  </Box>
+                )}
+
+                {!currentOrder.isReturnOrder && showDiscountControls && (
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Typography variant="body1">Discount</Typography>
@@ -836,7 +944,7 @@ const OrderSummary = () => {
                   </Box>
                 )}
 
-                {!currentOrder.isReturnOrder && effectiveOrderDiscount.blockedByMinimum && (
+                {!currentOrder.isReturnOrder && showDiscountControls && effectiveOrderDiscount.blockedByMinimum && (
                   <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 2 }}>
                     Global discount applies only for orders above {formatPrice(effectiveOrderDiscount.minimumOrderAmount)}.
                   </Typography>
@@ -862,7 +970,7 @@ const OrderSummary = () => {
 
                 {requiresCashTender ? (
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
-                    <Typography variant="body1">Cash Tendered</Typography>
+                    <Typography variant="body2">Cash Tendered</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Typography variant="body2">Rs.</Typography>
                       <TextField
@@ -881,7 +989,7 @@ const OrderSummary = () => {
                             setAmountPaid(rounded);
                           }
                         }}
-                        sx={{ width: 120 }}
+                        sx={{ width: 140 }}
                         inputProps={{ inputMode: 'decimal' }}
                       />
                     </Box>
@@ -994,16 +1102,33 @@ const OrderSummary = () => {
               </Box>
             </>
           )}
+
+          {showTotalsSection && !hasOrderContent && (
+            <Box
+              sx={{
+                flexGrow: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'text.secondary',
+              }}
+            >
+              <Typography variant="body2">Add items to view totals and actions</Typography>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
-      <SetActiveDialog
-        open={setActiveDialogOpen}
-        onClose={() => setSetActiveDialogOpen(false)}
-        onSave={handleSetAsActive}
-        initialCustomerName={currentOrder.customerName}
-      />
+      {showTotalsSection && (
+        <SetActiveDialog
+          open={setActiveDialogOpen}
+          onClose={() => setSetActiveDialogOpen(false)}
+          onSave={handleSetAsActive}
+          initialCustomerName={currentOrder.customerName}
+        />
+      )}
 
+      {showTotalsSection && (
       <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Payment Confirmation</DialogTitle>
         <DialogContent>
@@ -1034,6 +1159,7 @@ const OrderSummary = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      )}
     </>
   );
 };

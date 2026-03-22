@@ -44,6 +44,7 @@ const MainLayout = ({ children }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const isPosRoute = location.pathname === '/pos';
   
   const { user, activeShift } = useSelector((state) => state.auth);
   
@@ -400,7 +401,7 @@ const MainLayout = ({ children }) => {
           pt: '64px', // Account for AppBar height
         }}
       >
-        <Box sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
+        <Box sx={{ p: isPosRoute ? 0 : { xs: 1.5, sm: 2, md: 3 } }}>
           {children}
         </Box>
       </Box>
