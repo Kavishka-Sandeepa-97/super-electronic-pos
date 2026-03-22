@@ -6,7 +6,6 @@ import {
   Button,
   CircularProgress,
   Dialog,
-  DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
@@ -182,7 +181,22 @@ const ReturnOrderDialog = ({ open, onClose }) => {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
       <DialogTitle>
-        Return Order
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6">Return Order</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button variant="outlined" onClick={onClose} size="medium">
+              Close
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleStartReturn}
+              disabled={!selectedOrder || selectedItemsCount === 0}
+              size="medium"
+            >
+              Start Return Order
+            </Button>
+          </Box>
+        </Box>
       </DialogTitle>
       <DialogContent sx={{ overflow: 'visible' }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
@@ -346,16 +360,6 @@ const ReturnOrderDialog = ({ open, onClose }) => {
           </Paper>
         </Box>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-        <Button
-          variant="contained"
-          onClick={handleStartReturn}
-          disabled={!selectedOrder || selectedItemsCount === 0}
-        >
-          Start Return Order
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 };

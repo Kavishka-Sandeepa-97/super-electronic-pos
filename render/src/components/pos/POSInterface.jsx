@@ -546,23 +546,24 @@ const POSInterface = () => {
 
           {/* Items Grid */}
           <Box className="scrollbar-thin" sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {(filteredItems || []).slice(posPage * posRowsPerPage, posPage * posRowsPerPage + posRowsPerPage).map((item) => {
                 if (!item) return null;
                 const stockStatus = getStockStatus(item.total_stock || 0);
                 const isOutOfStock = (item.total_stock || 0) <= 0;
                 return (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={item.id}>
+                  <Grid item xs={12} key={item.id}>
                     <Card
                       sx={{
-                        height: '100%',
+                        minHeight: 110,
                         display: 'flex',
-                        flexDirection: 'column',
+                        flexDirection: 'row',
+                        alignItems: 'stretch',
                         cursor: 'pointer',
                         transition: 'all 0.3s ease',
                         '&:hover': {
-                          transform: 'translateY(-4px)',
-                          boxShadow: '0 8px 25px rgba(0,0,0,0.15)',
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(0,0,0,0.14)',
                         },
                         border: isOutOfStock ? '2px solid #f44336' : 'none',
                         opacity: isOutOfStock ? 0.6 : 1,
@@ -576,7 +577,8 @@ const POSInterface = () => {
                           image={item.image.startsWith('data:image') ? item.image : `http://localhost:3001/uploads/${item.image.replace(/\\/g, '/').split('/').pop()}`}
                           alt={item.item_name}
                           sx={{
-                            height: 120,
+                            width: 94,
+                            minWidth: 94,
                             objectFit: 'cover',
                           }}
                         />
@@ -584,39 +586,40 @@ const POSInterface = () => {
                         <CardMedia
                           component="div"
                           sx={{
-                            height: 120,
+                            width: 94,
+                            minWidth: 94,
                             background: 'linear-gradient(45deg, #667eea, #764ba2)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             color: 'white',
-                            fontSize: '2rem',
+                            fontSize: '1.5rem',
                           }}
                         >
                           <Category />
                         </CardMedia>
                       )}
 
-                      <CardContent sx={{ flexGrow: 1, p: 2 }}>
+                      <CardContent sx={{ flexGrow: 1, p: 1.5, '&:last-child': { pb: 1.5 } }}>
                         <Tooltip title={item.item_name || 'Unknown Item'} arrow>
-                          <Typography variant="h6" fontWeight="bold" gutterBottom noWrap sx={{ maxWidth: '100%' }}>
+                          <Typography variant="subtitle1" fontWeight="bold" noWrap sx={{ maxWidth: '100%' }}>
                             {item.item_name || 'Unknown Item'}
                           </Typography>
                         </Tooltip>
 
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>
                           {item.variant_name || 'Default Variant'}
                         </Typography>
 
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75, gap: 1 }}>
                           <Box
                             sx={{
                               backgroundColor: '#2e7d32',
                               color: '#ffffff',
-                              padding: '6px 12px',
+                              padding: '4px 10px',
                               borderRadius: '8px',
                               fontWeight: 'bold',
-                              fontSize: '1.1rem',
+                              fontSize: '0.95rem',
                               boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
                             }}
                           >
@@ -644,20 +647,17 @@ const POSInterface = () => {
 
                         </Box>
 
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1 }}>
-                          <Typography variant="caption" color="text.secondary">
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                          <Typography variant="caption" color="text.secondary" noWrap>
                             Stock: {(item.total_stock || 0)} units
                           </Typography>
 
-                          <Box>
-                            <Chip
-                              label={stockStatus.label}
-                              color={stockStatus.color}
-                              size="small"
-                              variant="outlined"
-                              sx={{ mt: 0.5 }}
-                            />
-                          </Box>
+                          <Chip
+                            label={stockStatus.label}
+                            color={stockStatus.color}
+                            size="small"
+                            variant="outlined"
+                          />
                         </Box>
 
 
