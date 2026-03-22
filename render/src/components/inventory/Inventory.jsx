@@ -77,6 +77,9 @@ const Inventory = () => {
   // Edit item dialog (overview table)
   const fileInputRef = useRef(null);
   const [editItemDialog, setEditItemDialog] = useState(false);
+  const [deleteItemDialog, setDeleteItemDialog] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  const [deletingItem, setDeletingItem] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [newItem, setNewItem] = useState({ name: '', category: '', variant: '', image: null, imagePreview: null });
   const [savingItem, setSavingItem] = useState(false);
@@ -354,10 +357,25 @@ const Inventory = () => {
     finally { setSavingItem(false); }
   };
 
-  const handleDeleteItem = async (itemId) => {
-    if (window.confirm('Are you sure you want to delete this item?')) {
-      try { await api.itemVariants.delete(itemId); toast.success('Item deleted successfully'); dispatch(fetchItemVariants()); }
-      catch { toast.error('Failed to delete item'); }
+  const handleDeleteItem = (itemId) => {
+    setItemToDelete(itemId);
+    setDeleteItemDialog(true);
+  };
+
+  const confirmDeleteItem = async () => {
+    if (!itemToDelete) return;
+
+    setDeletingItem(true);
+    try {
+      await api.itemVariants.delete(itemToDelete);
+      toast.success('Item deleted successfully');
+      dispatch(fetchItemVariants());
+      setDeleteItemDialog(false);
+      setItemToDelete(null);
+    } catch {
+      toast.error('Failed to delete item');
+    } finally {
+      setDeletingItem(false);
     }
   };
 
@@ -562,6 +580,44 @@ const Inventory = () => {
         setBarcodePrintQuantity={setBarcodePrintQuantity}
         onPrint={handlePrintBarcodeLabels}
       />
+
+      {/* Delete Item Confirmation */}
+      <Dialog
+        open={deleteItemDialog}
+        onClose={() => {
+          if (deletingItem) return;
+          setDeleteItemDialog(false);
+          setItemToDelete(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Delete Item</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this item? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteItemDialog(false);
+              setItemToDelete(null);
+            }}
+            disabled={deletingItem}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDeleteItem}
+            color="error"
+            variant="contained"
+            disabled={deletingItem}
+          >
+            {deletingItem ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Edit Item Dialog (from overview table) */}
       <Dialog open={editItemDialog} onClose={() => { setEditItemDialog(false); setSelectedItem(null); }} maxWidth="md" fullWidth>

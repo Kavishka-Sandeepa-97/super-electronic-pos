@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Dialog,
@@ -33,6 +33,9 @@ import { fetchActiveOrders, loadActiveOrder, updateOrderStatus } from '../../sto
 const ActiveOrdersDialog = ({ open, onClose }) => {
   const dispatch = useDispatch();
   const { activeOrders, loading, currentOrder } = useSelector((state) => state.order);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -57,15 +60,24 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
     }
   };
 
-  const handleCancelOrder = async (orderId) => {
-    if (window.confirm('Are you sure you want to cancel this order?')) {
-      try {
-        await dispatch(updateOrderStatus({ orderId, status: 'cancelled' })).unwrap();
-        // Refresh the active orders list immediately after canceling
-        await dispatch(fetchActiveOrders()).unwrap();
-      } catch (error) {
-        console.error('Failed to cancel order:', error);
-      }
+  const handleCancelOrder = (orderId) => {
+    setOrderToCancel(orderId);
+    setCancelConfirmOpen(true);
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!orderToCancel) return;
+
+    setCancellingOrderId(orderToCancel);
+    try {
+      await dispatch(updateOrderStatus({ orderId: orderToCancel, status: 'cancelled' })).unwrap();
+      await dispatch(fetchActiveOrders()).unwrap();
+      setCancelConfirmOpen(false);
+      setOrderToCancel(null);
+    } catch (error) {
+      console.error('Failed to cancel order:', error);
+    } finally {
+      setCancellingOrderId(null);
     }
   };
 
@@ -213,10 +225,24 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
                         )}
                       </TableCell>
                       <TableCell align="center">
-                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            gap: 1.1,
+                            justifyContent: 'center',
+                            '& .MuiIconButton-root': {
+                              width: 48,
+                              height: 48,
+                              p: 1.1,
+                            },
+                            '& .MuiSvgIcon-root': {
+                              fontSize: '1.6rem',
+                            },
+                          }}
+                        >
                           <Tooltip title="Load Order">
                             <IconButton
-                              size="small"
+                              size="large"
                               color="primary"
                               onClick={() => handleLoadOrder(order)}
                               disabled={isLoaded}
@@ -226,9 +252,10 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
                           </Tooltip>
                           <Tooltip title="Cancel Order">
                             <IconButton
-                              size="small"
+                              size="large"
                               color="error"
                               onClick={() => handleCancelOrder(order.id)}
+                              disabled={cancellingOrderId === order.id}
                             >
                               <Cancel />
                             </IconButton>
@@ -246,6 +273,41 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
+
+      <Dialog
+        open={cancelConfirmOpen}
+        onClose={() => {
+          if (cancellingOrderId) return;
+          setCancelConfirmOpen(false);
+          setOrderToCancel(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Cancel Order</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to cancel this active order?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setCancelConfirmOpen(false);
+              setOrderToCancel(null);
+            }}
+            disabled={!!cancellingOrderId}
+          >
+            Keep Order
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={confirmCancelOrder}
+            disabled={!!cancellingOrderId}
+          >
+            {cancellingOrderId ? 'Cancelling...' : 'Cancel Order'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };

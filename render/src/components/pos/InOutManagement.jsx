@@ -51,6 +51,9 @@ const InOutManagement = () => {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState(null);
+  const [deletingTransaction, setDeletingTransaction] = useState(false);
   const [stats, setStats] = useState({ IN: { count: 0, total_amount: 0 }, OUT: { count: 0, total_amount: 0 }, net_amount: 0 });
 
   // Form state
@@ -202,11 +205,16 @@ const InOutManagement = () => {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this transaction?')) return;
+  const handleDelete = (id) => {
+    setTransactionToDelete(id);
+    setDeleteConfirmOpen(true);
+  };
 
+  const confirmDelete = async () => {
+    if (!transactionToDelete) return;
+    setDeletingTransaction(true);
     try {
-      await inOutAPI.delete(id);
+      await inOutAPI.delete(transactionToDelete);
       toast.success('Transaction deleted successfully');
       
       // Refresh active shift data for cashiers to update cash amount
@@ -218,12 +226,17 @@ const InOutManagement = () => {
           console.warn('Could not refresh active shift:', shiftError);
         }
       }
+
+      setDeleteConfirmOpen(false);
+      setTransactionToDelete(null);
       
       fetchTransactions();
       fetchStats();
     } catch (error) {
       console.error('Error deleting transaction:', error);
       toast.error('Failed to delete transaction');
+    } finally {
+      setDeletingTransaction(false);
     }
   };
 
@@ -544,6 +557,41 @@ const InOutManagement = () => {
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button onClick={handleSubmit} variant="contained">
             {editingTransaction ? 'Update' : 'Add'} Transaction
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => {
+          if (deletingTransaction) return;
+          setDeleteConfirmOpen(false);
+          setTransactionToDelete(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Delete Transaction</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this transaction?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteConfirmOpen(false);
+              setTransactionToDelete(null);
+            }}
+            disabled={deletingTransaction}
+          >
+            Keep
+          </Button>
+          <Button
+            onClick={confirmDelete}
+            color="error"
+            variant="contained"
+            disabled={deletingTransaction}
+          >
+            {deletingTransaction ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

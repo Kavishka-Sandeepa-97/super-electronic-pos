@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
@@ -73,6 +73,9 @@ const OrderSummary = ({ view = 'full' }) => {
   const [editDiscountType, setEditDiscountType] = useState('percentage');
   const [editDiscountValue, setEditDiscountValue] = useState('');
   const [globalDiscountSettings, setGlobalDiscountSettings] = useState(null);
+  const [blinkLineKey, setBlinkLineKey] = useState(null);
+  const itemsScrollRef = useRef(null);
+  const previousItemsCountRef = useRef(currentOrder.items.length);
 
   const hasReturnItems = currentOrder.isReturnOrder && (currentOrder.returnedItems || []).length > 0;
   const hasOrderContent = currentOrder.items.length > 0 || hasReturnItems;
@@ -212,6 +215,28 @@ const OrderSummary = ({ view = 'full' }) => {
       setAmountPaid('');
     }
   }, [currentOrder.items.length, currentOrder.id, hasReturnItems, paymentDialog]);
+
+  useEffect(() => {
+    const currentCount = currentOrder.items.length;
+    const previousCount = previousItemsCountRef.current;
+
+    if (showItemsSection && currentCount > previousCount && itemsScrollRef.current) {
+      const newestItem = currentOrder.items[currentOrder.items.length - 1];
+      if (newestItem?.lineKey) {
+        setBlinkLineKey(newestItem.lineKey);
+        setTimeout(() => setBlinkLineKey(null), 900);
+      }
+
+      requestAnimationFrame(() => {
+        itemsScrollRef.current.scrollTo({
+          top: 0,
+          behavior: 'auto',
+        });
+      });
+    }
+
+    previousItemsCountRef.current = currentCount;
+  }, [currentOrder.items.length, showItemsSection]);
 
   const formatPrice = (price) => {
     const parsedPrice = parseFloat(price);
@@ -541,7 +566,17 @@ const OrderSummary = ({ view = 'full' }) => {
           overflow: 'auto',
         }}
       >
-        <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <CardContent
+          sx={{
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            p: view === 'items' ? 0 : 2,
+            '&:last-child': {
+              pb: view === 'items' ? 0 : 2,
+            },
+          }}
+        >
           {showItemsSection && user?.role === 'cashier' && !activeShift && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="body2">
@@ -580,7 +615,7 @@ const OrderSummary = ({ view = 'full' }) => {
           )}
 
           {showItemsSection && (
-            <Box className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
+            <Box ref={itemsScrollRef} className="scrollbar-thin" sx={{ flexGrow: 1, bgcolor: '#f5f5f5', overflowY: 'auto' }}>
             {currentOrder.items.length === 0 ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: 'text.secondary' }}>
                 <ShoppingCart sx={{ fontSize: 60, mb: 2, opacity: 0.5 }} />
@@ -588,7 +623,7 @@ const OrderSummary = ({ view = 'full' }) => {
               </Box>
             ) : (
               <List dense>
-                {currentOrder.items.map((item, index) => {
+                {[...currentOrder.items].reverse().map((item, index) => {
                   const discountVisual = !currentOrder.isReturnOrder && item.discountSource
                     ? getDiscountVisual(item.discountSource)
                     : getDiscountVisual(null);
@@ -604,14 +639,50 @@ const OrderSummary = ({ view = 'full' }) => {
                       bgcolor: discountVisual.bg,
                       height: 124,
                       overflow: 'hidden',
+                      transition: 'background-color 220ms ease, box-shadow 220ms ease',
                       '& .MuiListItemText-root': {
                         m: 0,
                       },
+                      ...(item.lineKey === blinkLineKey && {
+                        animation: 'newItemBlink 0.32s ease-in-out 3',
+                        '@keyframes newItemBlink': {
+                          '0%': {
+                            boxShadow: '0 0 0 rgba(46, 125, 50, 0)',
+                            backgroundColor: discountVisual.bg,
+                          },
+                          '50%': {
+                            boxShadow: '0 0 0 4px rgba(46, 125, 50, 0.42)',
+                            backgroundColor: '#e8f5e9',
+                            borderColor: '#2e7d32',
+                          },
+                          '100%': {
+                            boxShadow: '0 0 0 rgba(46, 125, 50, 0)',
+                            backgroundColor: discountVisual.bg,
+                          },
+                        },
+                      }),
                     }}
                   >
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              minWidth: 24,
+                              height: 24,
+                              borderRadius: '50%',
+                              bgcolor: '#1976d2',
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {currentOrder.items.length - index}
+                          </Box>
                           <Typography variant="subtitle2" fontWeight="bold" noWrap sx={{ lineHeight: 1.2, flex: 1, minWidth: 0 }}>
                             {item.itemName} {item.variantName && <span style={{ fontWeight: 'normal', color: '#666' }}>({item.variantName})</span>}
                           </Typography>

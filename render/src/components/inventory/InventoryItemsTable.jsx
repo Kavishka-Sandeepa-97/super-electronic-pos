@@ -165,30 +165,38 @@ const InventoryItemsTable = ({
                       <TableCell
                         sx={{
                           whiteSpace: 'nowrap',
-                          '& .MuiIconButton-root': { p: 0.9 },
-                          '& .MuiSvgIcon-root': { fontSize: '1.25rem' },
+                          py: 1,
+                          '& .MuiIconButton-root': {
+                            width: 52,
+                            height: 52,
+                            p: 1.3,
+                            borderRadius: 1.5,
+                          },
+                          '& .MuiSvgIcon-root': { fontSize: '1.7rem' },
                         }}
                       >
-                        <Tooltip title="Edit Item">
-                          <IconButton size="medium" onClick={() => onEditItem(item)}>
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Add Stock">
-                          <IconButton size="medium" color="secondary" onClick={() => onAddStock(item)}>
-                            <AddIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="View Stock Details">
-                          <IconButton size="medium" color="info" onClick={() => onViewStockBatch(item)}>
-                            <ListAltIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete Item">
-                          <IconButton size="medium" color="error" onClick={() => onDeleteItem(item.id)}>
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1 }}>
+                          <Tooltip title="Edit Item">
+                            <IconButton size="large" onClick={() => onEditItem(item)}>
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Add Stock">
+                            <IconButton size="large" color="secondary" onClick={() => onAddStock(item)}>
+                              <AddIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="View Stock Details">
+                            <IconButton size="large" color="info" onClick={() => onViewStockBatch(item)}>
+                              <ListAltIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete Item">
+                            <IconButton size="large" color="error" onClick={() => onDeleteItem(item.id)}>
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   );

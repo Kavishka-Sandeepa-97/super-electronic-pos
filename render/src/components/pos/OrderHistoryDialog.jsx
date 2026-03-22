@@ -60,6 +60,8 @@ const OrderHistoryDialog = ({ open, onClose }) => {
   const [editedItems, setEditedItems] = useState([]);
   const [savingOrder, setSavingOrder] = useState(false);
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState(null);
 
   // Filters
   const [dateFrom, setDateFrom] = useState('');
@@ -164,11 +166,13 @@ const OrderHistoryDialog = ({ open, onClose }) => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to cancel ${order.is_return ? 'return order' : 'order'} #${order.id}?\n\nThis will restore stock allocations and adjust cashier shift cash on hand if needed.`
-    );
+    setOrderToCancel(order);
+    setCancelConfirmOpen(true);
+  };
 
-    if (!confirmed) {
+  const confirmCancelOrder = async () => {
+    const order = orderToCancel;
+    if (!order) {
       return;
     }
 
@@ -190,6 +194,8 @@ const OrderHistoryDialog = ({ open, onClose }) => {
         setSelectedOrder((previous) => (previous ? { ...previous, status: 'cancelled' } : previous));
       }
 
+      setCancelConfirmOpen(false);
+      setOrderToCancel(null);
       await fetchOrders();
       dispatch(fetchActiveOrders());
       await refreshCashOnHand();
@@ -578,6 +584,46 @@ const OrderHistoryDialog = ({ open, onClose }) => {
             </>
           )}
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cancelConfirmOpen}
+        onClose={() => {
+          if (cancellingOrderId) return;
+          setCancelConfirmOpen(false);
+          setOrderToCancel(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Confirm Cancel Order</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to cancel {orderToCancel?.is_return ? 'return order' : 'order'} #{orderToCancel?.id}?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            This will restore stock allocations and adjust cashier shift cash on hand if needed.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setCancelConfirmOpen(false);
+              setOrderToCancel(null);
+            }}
+            disabled={!!cancellingOrderId}
+          >
+            Keep Order
+          </Button>
+          <Button
+            onClick={confirmCancelOrder}
+            color="error"
+            variant="contained"
+            disabled={!!cancellingOrderId}
+          >
+            {cancellingOrderId ? 'Cancelling...' : 'Cancel Order'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Order Preview Dialog */}
