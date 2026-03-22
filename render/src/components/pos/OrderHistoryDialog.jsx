@@ -40,6 +40,7 @@ import {
   Delete,
   Cancel,
   LocalOffer,
+  Close,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import htmlPrintService from '../../services/htmlPrintService';
@@ -64,6 +65,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [productSearch, setProductSearch] = useState('');
 
   // Pagination
   const [page, setPage] = useState(0);
@@ -75,7 +77,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
     if (open) {
       fetchOrders();
     }
-  }, [open, page, rowsPerPage, dateFrom, dateTo, statusFilter]);
+  }, [open, page, rowsPerPage, dateFrom, dateTo, statusFilter, productSearch]);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -88,6 +90,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
       if (dateFrom) params.append('date_from', dateFrom);
       if (dateTo) params.append('date_to', dateTo);
       if (statusFilter) params.append('status', statusFilter);
+      if (productSearch) params.append('item_search', productSearch);
 
       const response = await fetch(`http://localhost:3001/api/orders?${params}`);
       const data = await response.json();
@@ -323,6 +326,14 @@ const OrderHistoryDialog = ({ open, onClose }) => {
     }
   };
 
+  const isItemMatching = (item) => {
+    if (!productSearch || !productSearch.trim()) return false;
+    const searchLower = productSearch.toLowerCase();
+    const barcode = (item.barcode || '').toLowerCase();
+    const itemName = (item.item_name || '').toLowerCase();
+    return barcode.includes(searchLower) || itemName.includes(searchLower);
+  };
+
   const handlePageChange = (event, newPage) => {
     setPage(newPage);
   };
@@ -346,14 +357,26 @@ const OrderHistoryDialog = ({ open, onClose }) => {
               <History />
               Order History
             </Box>
-            <IconButton
-              onClick={fetchOrders}
-              color="primary"
-              size="small"
-              disabled={loading}
-            >
-              <Refresh />
-            </IconButton>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Button
+                onClick={fetchOrders}
+                color="primary"
+                variant="outlined"
+                size="medium"
+                disabled={loading}
+                startIcon={<Refresh />}
+              >
+                Refresh
+              </Button>
+              <Button
+                onClick={onClose}
+                color="inherit"
+                variant="outlined"
+                size="medium"
+              >
+                Close
+              </Button>
+            </Box>
           </Box>
         </DialogTitle>
         <DialogContent sx={{ overflow: 'visible' }}>
@@ -397,7 +420,20 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                 <MenuItem value="cancelled">Cancelled</MenuItem>
               </Select>
             </FormControl>
-            <Button variant="outlined" onClick={handleFilterChange}>
+            <TextField
+              label="Search by Product"
+              type="text"
+              placeholder="Barcode or Item Name"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              size="small"
+              sx={{ minWidth: 200 }}
+            />
+            <Button 
+              variant="contained" 
+              onClick={handleFilterChange}
+              size="medium"
+            >
               Apply Filters
             </Button>
           </Box>
@@ -485,38 +521,36 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                           />
                         </TableCell>
                         <TableCell align="center">
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <Tooltip title="Edit Order">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={(e) => handleEditOrder(order, e)}
-                                disabled={!!order.is_return || order.status === 'cancelled'}
-                              >
-                                <Edit fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Preview Order">
-                              <IconButton
-                                size="small"
-                                color="info"
-                                onClick={(e) => handlePreviewOrder(order, e)}
-                              >
-                                <Visibility fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title={order.status === 'cancelled' ? 'Already cancelled' : 'Cancel Order'}>
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={(e) => handleCancelOrder(order, e)}
-                                  disabled={order.status === 'cancelled' || cancellingOrderId === order.id}
-                                >
-                                  <Cancel fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
+                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <Button
+                              size="medium"
+                              variant="outlined"
+                              color="primary"
+                              onClick={(e) => handleEditOrder(order, e)}
+                              disabled={!!order.is_return || order.status === 'cancelled'}
+                              sx={{ minWidth: 80 }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="medium"
+                              variant="outlined"
+                              color="info"
+                              onClick={(e) => handlePreviewOrder(order, e)}
+                              sx={{ minWidth: 80 }}
+                            >
+                              Preview
+                            </Button>
+                            <Button
+                              size="medium"
+                              variant="outlined"
+                              color="error"
+                              onClick={(e) => handleCancelOrder(order, e)}
+                              disabled={order.status === 'cancelled' || cancellingOrderId === order.id}
+                              sx={{ minWidth: 80 }}
+                            >
+                              Cancel
+                            </Button>
                           </Box>
                         </TableCell>
                       </TableRow>
@@ -544,9 +578,6 @@ const OrderHistoryDialog = ({ open, onClose }) => {
             </>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Close</Button>
-        </DialogActions>
       </Dialog>
 
       {/* Order Preview Dialog */}
@@ -556,7 +587,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
             <Typography variant="h6">
               Order #{selectedOrder?.id} {selectedOrder?.is_return ? '(Return)' : ''} - {editMode ? 'Edit Order' : 'Preview'}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               {!editMode && (
                 <>
                   <Button
@@ -569,6 +600,15 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                   </Button>
                 </>
               )}
+              <Button
+                onClick={() => setPreviewOpen(false)}
+                color="inherit"
+                variant="outlined"
+                size="medium"
+                sx={{ ml: 1 }}
+              >
+                Close
+              </Button>
             </Box>
           </Box>
         </DialogTitle>
@@ -608,6 +648,7 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                   <TableHead>
                     <TableRow>
                       <TableCell><strong>Item</strong></TableCell>
+                      <TableCell align="center"><strong>Barcode</strong></TableCell>
                       <TableCell align="center"><strong>Qty</strong></TableCell>
                       <TableCell align="right"><strong>Unit Price</strong></TableCell>
                       <TableCell align="center"><strong>Discount</strong></TableCell>
@@ -619,17 +660,41 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                     {(editMode ? editedItems : (selectedOrder.items || [])).map((item, index) => {
                       const qty = parseFloat(item.quantity || item.qty || 0);
                       const price = parseFloat(item.price || item.unit_price || 0);
+                      const isMatching = isItemMatching(item);
                       return (
-                        <TableRow key={index}>
+                        <TableRow 
+                          key={index}
+                          sx={{ 
+                            bgcolor: isMatching && productSearch ? 'rgba(255, 193, 7, 0.2)' : 'inherit',
+                            '&:hover': { bgcolor: isMatching && productSearch ? 'rgba(255, 193, 7, 0.3)' : 'action.hover' }
+                          }}
+                        >
                           <TableCell>
-                            <Typography variant="body2" fontWeight="bold">
-                              {item.item_name}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Box>
+                                <Typography variant="body2" fontWeight="bold">
+                                  {item.item_name}
+                                </Typography>
+                                {item.variant_name && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {item.variant_name}
+                                  </Typography>
+                                )}
+                              </Box>
+                              {isMatching && productSearch && (
+                                <Chip 
+                                  label="Match" 
+                                  size="small" 
+                                  color="warning"
+                                  variant="filled"
+                                />
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                              {item.barcode || 'N/A'}
                             </Typography>
-                            {item.variant_name && (
-                              <Typography variant="caption" color="text.secondary">
-                                {item.variant_name}
-                              </Typography>
-                            )}
                           </TableCell>
                           <TableCell align="center">
                             {editMode ? (
@@ -791,8 +856,8 @@ const OrderHistoryDialog = ({ open, onClose }) => {
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          {editMode ? (
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          {editMode && (
             <>
               <Button 
                 onClick={() => {
@@ -800,6 +865,9 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                   setEditedItems(selectedOrder.items || []);
                 }}
                 disabled={savingOrder}
+                variant="outlined"
+                size="large"
+                sx={{ minWidth: 120 }}
               >
                 Cancel
               </Button>
@@ -808,12 +876,12 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                 variant="contained"
                 color="primary"
                 disabled={savingOrder || editedItems.length === 0}
+                size="large"
+                sx={{ minWidth: 120 }}
               >
                 {savingOrder ? 'Saving...' : 'Save Changes'}
               </Button>
             </>
-          ) : (
-            <Button onClick={() => setPreviewOpen(false)}>Close</Button>
           )}
         </DialogActions>
       </Dialog>

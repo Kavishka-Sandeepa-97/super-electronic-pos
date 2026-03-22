@@ -453,6 +453,7 @@ router.get('/', (req, res) => {
     date_to,
     search,
     is_return,
+    item_search,
     page = 1,
     limit = 10,
   } = req.query;
@@ -461,11 +462,23 @@ router.get('/', (req, res) => {
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
 
   try {
+    // Check if we need to join with item_variant_order for item search
+    const hasItemSearch = item_search && String(item_search).trim();
+    
     let query = `
-      SELECT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name
+      SELECT DISTINCT o.*, CASE WHEN s.name = 'Admin' THEN 'System' ELSE s.name END as staff_name
       FROM orders o
       JOIN staff s ON o.staff_id = s.id
     `;
+    
+    if (hasItemSearch) {
+      query += `
+        JOIN item_variant_order ivo ON o.id = ivo.order_id
+        JOIN item_variant iv ON ivo.item_variant_id = iv.id
+        JOIN item i ON iv.item_id = i.id
+      `;
+    }
+    
     const params = [];
     const conditions = [];
 
@@ -490,6 +503,12 @@ router.get('/', (req, res) => {
       params.push(likeSearch, likeSearch, likeSearch);
     }
 
+    if (hasItemSearch) {
+      const likeItemSearch = `%${String(item_search).trim()}%`;
+      conditions.push('(iv.barcode LIKE ? OR i.name LIKE ?)');
+      params.push(likeItemSearch, likeItemSearch);
+    }
+
     if (is_return !== undefined) {
       const isReturnFilter = parseBoolean(is_return, null);
       if (isReturnFilter !== null) {
@@ -504,7 +523,14 @@ router.get('/', (req, res) => {
 
     query += ' ORDER BY o.date DESC, o.id DESC';
 
-    let countQuery = 'SELECT COUNT(*) as total FROM orders o';
+    let countQuery = 'SELECT COUNT(DISTINCT o.id) as total FROM orders o';
+    if (hasItemSearch) {
+      countQuery += `
+        JOIN item_variant_order ivo ON o.id = ivo.order_id
+        JOIN item_variant iv ON ivo.item_variant_id = iv.id
+        JOIN item i ON iv.item_id = i.id
+      `;
+    }
     if (conditions.length > 0) {
       countQuery += ` WHERE ${conditions.join(' AND ')}`;
     }
