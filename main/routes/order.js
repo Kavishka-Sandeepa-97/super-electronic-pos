@@ -72,6 +72,16 @@ const normalizeOrderItems = (items, { allowEmpty = false } = {}) => {
     const qty = parsePositiveInteger(item.qty, `qty at row ${row}`);
     const unitPrice = parseNonNegativeNumber(item.unit_price, `unit_price at row ${row}`);
     const originalPrice = parseOptionalNumber(item.original_price, unitPrice);
+    const rawDiscountType = item.discount_type || null;
+    const discountType = ['fixed', 'percentage'].includes(rawDiscountType) ? rawDiscountType : null;
+    const rawDiscountValue = parseOptionalNumber(item.discount_value, 0);
+
+    const safeDiscountValue = discountType === 'percentage'
+      ? Math.min(100, Math.max(0, rawDiscountValue))
+      : Math.max(0, rawDiscountValue);
+
+    // Item discount persistence should come from price delta, not client-provided amount.
+    const computedDiscountAmount = Math.max(0, Math.round((originalPrice - unitPrice) * 100) / 100);
 
     let preferredBatchId = null;
     if (item.preferred_batch_id !== undefined && item.preferred_batch_id !== null && item.preferred_batch_id !== '') {
@@ -84,9 +94,9 @@ const normalizeOrderItems = (items, { allowEmpty = false } = {}) => {
       unit_price: unitPrice,
       original_price: originalPrice,
       discount_source: item.discount_source || null,
-      discount_type: item.discount_type || null,
-      discount_value: parseOptionalNumber(item.discount_value, 0),
-      discount_amount: parseOptionalNumber(item.discount_amount, 0),
+      discount_type: discountType,
+      discount_value: safeDiscountValue,
+      discount_amount: computedDiscountAmount,
       preferred_batch_id: preferredBatchId,
     };
   });
@@ -136,10 +146,12 @@ const normalizeReturnItems = (returnItems) => {
 
 const calculateDiscountAmount = (subtotal, discountType, discountValue) => {
   if (discountType === 'percent') {
-    return (subtotal * discountValue) / 100;
+    const safePercent = Math.min(100, Math.max(0, parseOptionalNumber(discountValue, 0)));
+    return (subtotal * safePercent) / 100;
   }
   if (discountType === 'fixed') {
-    return discountValue;
+    const safeFixed = Math.max(0, parseOptionalNumber(discountValue, 0));
+    return Math.min(safeFixed, subtotal);
   }
   return 0;
 };

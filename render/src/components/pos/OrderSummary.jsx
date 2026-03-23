@@ -980,6 +980,18 @@ const OrderSummary = ({ view = 'full' }) => {
                   </Box>
                 )}
 
+                {!currentOrder.isReturnOrder && effectiveOrderDiscount.discountAmount > 0 && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                    <Typography variant="body2" color="warning.main">
+                      {isGlobalDiscountActive ? 'Global Discount' : 'Order Discount'}
+                      {effectiveOrderDiscount.discountType === 'percent' ? ` (${effectiveOrderDiscount.discountValue}%)` : ''}
+                    </Typography>
+                    <Typography variant="body2" color="warning.main" fontWeight={700}>
+                      - {formatPrice(effectiveOrderDiscount.discountAmount)}
+                    </Typography>
+                  </Box>
+                )}
+
                 {/*
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
                   <Typography variant="body1">Additional Charges</Typography>
