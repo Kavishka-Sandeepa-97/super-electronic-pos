@@ -196,6 +196,13 @@ const ActiveOrdersDialog = ({ open, onClose }) => {
                               N/A
                             </Typography>
                           )}
+                          <Chip
+                            label={order.is_card_payment ? 'Card' : 'Cash'}
+                            size="small"
+                            color={order.is_card_payment ? 'info' : 'success'}
+                            variant="outlined"
+                            sx={{ mt: 0.6, height: 20, fontSize: '0.68rem' }}
+                          />
                         </Box>
                       </TableCell>
                       <TableCell>

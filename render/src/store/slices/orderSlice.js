@@ -34,6 +34,7 @@ const createEmptyOrder = () => ({
   returnReason: '',
   returnedItems: [],
   returnCreditTotal: 0,
+  paymentMethod: 'cash',
 });
 
 const calculateReturnCredit = (returnedItems = []) => {
@@ -191,6 +192,7 @@ const orderSlice = createSlice({
         returnReason: order.credit_reason || '',
         returnedItems,
         returnCreditTotal: 0,
+        paymentMethod: order.is_card_payment ? 'card' : 'cash',
       };
 
       recalculateCurrentOrder(state.currentOrder);
@@ -257,6 +259,7 @@ const orderSlice = createSlice({
         returnReason: order.credit_reason || '',
         returnedItems,
         returnCreditTotal: 0,
+        paymentMethod: order.is_card_payment ? 'card' : 'cash',
       };
 
       recalculateCurrentOrder(state.currentOrder);

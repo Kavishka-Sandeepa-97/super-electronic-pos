@@ -82,7 +82,8 @@ const OrderSummary = ({ view = 'full' }) => {
   const hasOrderContent = currentOrder.items.length > 0 || hasReturnItems;
   const showItemsSection = view === 'full' || view === 'items';
   const showTotalsSection = view === 'full' || view === 'totals';
-  const requiresCashTender = currentOrder.total > 0;
+  const effectivePaymentMethod = paymentMethod || currentOrder.paymentMethod || 'cash';
+  const requiresCashTender = currentOrder.total > 0 && effectivePaymentMethod === 'cash';
   const paidAmount = parseFloat(amountPaid || 0) || 0;
   const change = paidAmount - currentOrder.total;
 
@@ -223,8 +224,21 @@ const OrderSummary = ({ view = 'full' }) => {
       setDiscountType('fixed');
       setDiscountValue('');
       setAmountPaid('');
+      setPaymentMethod('cash');
     }
   }, [currentOrder.items.length, currentOrder.id, hasReturnItems, paymentDialog]);
+
+  useEffect(() => {
+    if (currentOrder.paymentMethod) {
+      setPaymentMethod(currentOrder.paymentMethod);
+    }
+  }, [currentOrder.paymentMethod]);
+
+  useEffect(() => {
+    if (effectivePaymentMethod !== 'cash' && requiresCashTender === false) {
+      setAmountPaid('');
+    }
+  }, [effectivePaymentMethod, requiresCashTender]);
 
   useEffect(() => {
     const currentCount = currentOrder.items.length;
@@ -296,6 +310,7 @@ const OrderSummary = ({ view = 'full' }) => {
     setDiscountValue('');
     setShowDiscountControls(false);
     setAmountPaid('');
+    setPaymentMethod('cash');
     setEditDiscountItem(null);
     setEditDiscountValue('');
     setCompletedOrder(null);
@@ -360,7 +375,10 @@ const OrderSummary = ({ view = 'full' }) => {
         items: mapOrderItems(currentOrder.items),
         additional_charges: currentOrder.additionalCharges,
         customer_name: currentOrder.customerName,
-        tender_cash: parseFloat(amountPaid) || currentOrder.total,
+        tender_cash: effectivePaymentMethod === 'cash'
+          ? (parseFloat(amountPaid) || currentOrder.total)
+          : 0,
+        is_card_payment: effectivePaymentMethod === 'card',
         discount_type: effectiveOrderDiscount.discountType,
         discount_value: effectiveOrderDiscount.discountValue,
         status: currentOrder.originalStatus || 'completed',
@@ -405,6 +423,7 @@ const OrderSummary = ({ view = 'full' }) => {
           additional_charges: currentOrder.additionalCharges,
           customer_name: currentOrder.customerName,
           tender_cash: tenderCash,
+          is_card_payment: effectivePaymentMethod === 'card',
           discount_type: effectiveOrderDiscount.discountType,
           discount_value: effectiveOrderDiscount.discountValue,
           status: 'completed',
@@ -421,6 +440,7 @@ const OrderSummary = ({ view = 'full' }) => {
               additional_charges: currentOrder.additionalCharges,
               customer_name: currentOrder.customerName,
               tender_cash: tenderCash,
+              is_card_payment: effectivePaymentMethod === 'card',
               discount_type: null,
               discount_value: 0,
               status: 'completed',
@@ -435,6 +455,7 @@ const OrderSummary = ({ view = 'full' }) => {
               additional_charges: currentOrder.additionalCharges,
               customer_name: currentOrder.customerName,
               tender_cash: tenderCash,
+              is_card_payment: effectivePaymentMethod === 'card',
               discount_type: effectiveOrderDiscount.discountType,
               discount_value: effectiveOrderDiscount.discountValue,
               status: 'completed',
@@ -454,9 +475,10 @@ const OrderSummary = ({ view = 'full' }) => {
         total: currentOrder.total,
         discount_type: currentOrder.isReturnOrder ? null : effectiveOrderDiscount.discountType,
         discount_value: currentOrder.isReturnOrder ? 0 : effectiveOrderDiscount.discountValue,
-        paymentMethod,
-        amountPaid: tenderCash,
+        paymentMethod: effectivePaymentMethod,
+        amountPaid: effectivePaymentMethod === 'cash' ? tenderCash : currentOrder.total,
         tender_cash: tenderCash,
+        is_card_payment: effectivePaymentMethod === 'card',
         cashier: user?.name || 'System',
         is_return: currentOrder.isReturnOrder,
       });
@@ -468,9 +490,10 @@ const OrderSummary = ({ view = 'full' }) => {
         total: currentOrder.total,
         discount_type: currentOrder.isReturnOrder ? null : effectiveOrderDiscount.discountType,
         discount_value: currentOrder.isReturnOrder ? 0 : effectiveOrderDiscount.discountValue,
-        paymentMethod,
-        amountPaid: tenderCash,
+        paymentMethod: effectivePaymentMethod,
+        amountPaid: effectivePaymentMethod === 'cash' ? tenderCash : currentOrder.total,
         tender_cash: tenderCash,
+        is_card_payment: effectivePaymentMethod === 'card',
         cashier: user?.name || 'System',
         is_return: currentOrder.isReturnOrder,
       };
@@ -503,6 +526,7 @@ const OrderSummary = ({ view = 'full' }) => {
       items: mapOrderItems(currentOrder.items),
       additional_charges: currentOrder.additionalCharges,
       customer_name: customerName || null,
+      is_card_payment: effectivePaymentMethod === 'card',
       discount_type: effectiveOrderDiscount.discountType,
       discount_value: effectiveOrderDiscount.discountValue,
       status: 'active',
@@ -917,6 +941,23 @@ const OrderSummary = ({ view = 'full' }) => {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                   <Typography variant="body1">Sale Items</Typography>
                   <Typography variant="body1">{currentOrder.items.length}</Typography>
+                </Box>
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <Typography variant="body1">Payment Method</Typography>
+                  <FormControl size="small" sx={{ width: 160 }}>
+                    <InputLabel id="pos-payment-method-label">Payment</InputLabel>
+                    <Select
+                      labelId="pos-payment-method-label"
+                      value={effectivePaymentMethod}
+                      label="Payment"
+                      onChange={(event) => setPaymentMethod(event.target.value)}
+                      disabled={currentOrder.isReturnOrder || currentOrder.total <= 0}
+                    >
+                      <MenuItem value="cash">Cash</MenuItem>
+                      <MenuItem value="card">Card</MenuItem>
+                    </Select>
+                  </FormControl>
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>

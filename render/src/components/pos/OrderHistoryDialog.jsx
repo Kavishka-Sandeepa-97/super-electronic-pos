@@ -275,8 +275,10 @@ const OrderHistoryDialog = ({ open, onClose }) => {
         ...selectedOrder,
         items: selectedOrder.items || [],
         cashier: selectedOrder.staff_name || 'System',
-        paymentMethod: 'cash',
-        amountPaid: selectedOrder.tender_cash,
+        paymentMethod: selectedOrder.is_card_payment ? 'card' : 'cash',
+        amountPaid: selectedOrder.is_card_payment
+          ? parseFloat(selectedOrder.total_amount || 0)
+          : parseFloat(selectedOrder.tender_cash || 0),
         tender_cash: selectedOrder.tender_cash
       };
 
@@ -507,6 +509,13 @@ const OrderHistoryDialog = ({ open, onClose }) => {
                                 N/A
                               </Typography>
                             )}
+                            <Chip
+                              label={order.is_card_payment ? 'Card' : 'Cash'}
+                              size="small"
+                              color={order.is_card_payment ? 'info' : 'success'}
+                              variant="outlined"
+                              sx={{ mt: 0.6, height: 20, fontSize: '0.68rem' }}
+                            />
                           </Box>
                         </TableCell>
                         <TableCell>
