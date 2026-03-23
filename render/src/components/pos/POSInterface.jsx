@@ -312,7 +312,7 @@ const POSInterface = () => {
         sx={{
           flexGrow: 1,
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '1.1fr 1.2fr 0.7fr' },
+          gridTemplateColumns: { xs: '1fr', lg: '1.1fr 1.1fr 0.8fr' },
           gap: 1.5,
           px: 1.5,
           pb: 1.5,
