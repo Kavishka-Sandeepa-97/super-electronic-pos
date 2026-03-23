@@ -289,11 +289,16 @@ const OrderHistoryDialog = ({ open, onClose }) => {
         receiptFooter: 'Thank you for your visit!'
       };
 
-      // Try direct thermal printing first, fall back to browser print
+      // Use the same printer selection path as Place Order printing.
+      const preferredPrinterName = 'XP-80C (copy 2)';
       const savedPrinter = localStorage.getItem('selectedPrinter');
+      if (!savedPrinter) {
+        localStorage.setItem('selectedPrinter', preferredPrinterName);
+      }
+
       let billResult;
-      
-      if (savedPrinter && window.require) {
+
+      if (htmlPrintService.canDirectPrint()) {
         billResult = await htmlPrintService.printDirectThermal(orderData, storeInfo);
       } else {
         billResult = await htmlPrintService.printBillHTML(orderData, storeInfo);

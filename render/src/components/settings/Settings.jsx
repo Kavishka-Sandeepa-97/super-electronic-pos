@@ -38,6 +38,7 @@ import {
   Person as PersonIcon,
   Security as SecurityIcon,
   Store as StoreIcon,
+  Print as PrintIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Add as AddIcon,
@@ -48,6 +49,7 @@ import {
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import api from '../../services/api';
+import PrinterSettings from './PrinterSettings';
 
 const Settings = () => {
   const { user } = useSelector((state) => state.auth);
@@ -105,6 +107,7 @@ const Settings = () => {
         users: 1,
         cashierShifts: 2,
         store: 3,
+        printer: 4,
       };
       if (tabMap[tabValue] !== undefined) {
         setCurrentTab(tabMap[tabValue]);
@@ -634,12 +637,14 @@ const Settings = () => {
         <Tab icon={<SecurityIcon />} label="Users" />
         <Tab icon={<AccountBalanceWallet />} label="Cashier Shifts" />
         <Tab icon={<StoreIcon />} label="Store" />
+        <Tab icon={<PrintIcon />} label="Printer" />
       </Tabs>
 
       {currentTab === 0 && <ProfileSettings />}
       {currentTab === 1 && <UserManagement />}
       {currentTab === 2 && <CashierShifts />}
       {currentTab === 3 && <StoreSettings />}
+      {currentTab === 4 && <PrinterSettings />}
 
       {/* Add/Edit User Dialog */}
       <Dialog 

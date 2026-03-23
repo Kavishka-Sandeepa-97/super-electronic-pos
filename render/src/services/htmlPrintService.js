@@ -21,10 +21,10 @@ const getIpcRenderer = () => {
 const getReceiptFontSettings = () => {
   const fontFamily = localStorage.getItem('receiptFontFamily') || 'Arial';
   const rawWeight = (localStorage.getItem('receiptFontWeight') || 'normal').toString().toLowerCase();
-  const rawSize = parseInt(localStorage.getItem('receiptFontSize') || '11', 10);
+  const rawSize = parseInt(localStorage.getItem('receiptFontSize') || '10', 10);
 
   // Keep receipt text inside thermal paper width even if saved settings are too large.
-  const fontSize = Number.isFinite(rawSize) ? Math.min(12, Math.max(9, rawSize)) : 11;
+  const fontSize = Number.isFinite(rawSize) ? Math.min(10, Math.max(8, rawSize)) : 10;
   const fontWeight = ['normal', 'bold', '900'].includes(rawWeight) ? rawWeight : 'normal';
 
   return { fontFamily, fontWeight, fontSize };
@@ -94,29 +94,30 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
         font-family: '${fontFamily}', Arial, Helvetica, sans-serif;
         font-weight: ${fontWeight};
         font-size: ${fontSize}px;
-        line-height: 1.16;
+        line-height: 1.12;
         color: #000;
         -webkit-print-color-adjust: exact;
       }
-      .receipt { width: 300px; padding: 6px; }
+      .receipt { width: 276px; padding: 4px; }
       .center { text-align: center; }
       .right { text-align: right; }
-      h2 { margin: 3px 0; font-size: 20px; font-weight: 900; letter-spacing: 0.8px; }
-      .small { font-size: 10px; }
+      h2 { margin: 2px 0; font-size: 16px; font-weight: 900; letter-spacing: 0.4px; }
+      .small { font-size: 9px; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      .items td { padding: 2px 0; word-wrap: break-word; white-space: normal; }
-      .items td:first-child { width: 58%; word-break: break-word; }
+      thead th { font-size: 9px; }
+      .items td { padding: 1px 0; word-wrap: break-word; white-space: normal; font-size: 9px; }
+      .items td:first-child { width: 57%; word-break: break-word; }
       .items td:nth-child(2) { width: 12%; text-align: center; }
-      .items td:nth-child(3) { width: 30%; text-align: right; }
-      .disc-row td { font-size: 9px; color: #333; padding: 0 0 2px 6px; font-weight: normal; }
-      .discount-summary-row td { font-size: 11px; font-weight: 700; }
-      .discount-highlight { font-size: 11px; font-weight: 900; letter-spacing: 0.1px; }
+      .items td:nth-child(3) { width: 31%; text-align: right; white-space: nowrap; }
+      .disc-row td { font-size: 8px; color: #333; padding: 0 0 2px 4px; font-weight: normal; }
+      .discount-summary-row td { font-size: 10px; font-weight: 700; }
+      .discount-highlight { font-size: 10px; font-weight: 900; letter-spacing: 0.1px; }
       .sep { border-top: 1px dashed #000; margin: 6px 0; }
-      .total-row td { font-size: 14px; font-weight: 900; }
-      .receipt-footer { text-align: center; margin-top: 10px; }
+      .total-row td { font-size: 12px; font-weight: 900; white-space: nowrap; }
+      .receipt-footer { text-align: center; margin-top: 8px; }
       .order-barcode { text-align: center; margin-top: 6px; }
-      .order-barcode svg { display: block; margin: 0 auto; max-width: 170px; height: 20px; }
-      .order-barcode-number { margin-top: 1px; font-size: 10px; letter-spacing: 1px; }
+      .order-barcode svg { display: block; margin: 0 auto; max-width: 150px; height: 18px; }
+      .order-barcode-number { margin-top: 1px; font-size: 9px; letter-spacing: 0.8px; }
     </style>
   `;
 

@@ -19,6 +19,7 @@ import htmlPrintService from '../../services/htmlPrintService';
 import { toast } from 'react-toastify';
 
 const PrinterSettings = () => {
+  const quickReceiptPrinters = ['XP-80C (copy 2)', 'XP-80C (copy 4)'];
   const [printers, setPrinters] = useState([]);
   const [selectedPrinter, setSelectedPrinter] = useState(() => {
     // Load saved printer from localStorage
@@ -83,10 +84,13 @@ const PrinterSettings = () => {
       if (savedExists) {
         setSelectedPrinter(savedPrinter);
       } else if (availablePrinters.length > 0) {
-        // Auto-select first available printer if no saved selection
-        const firstPrinter = availablePrinters[0].name;
-        setSelectedPrinter(firstPrinter);
-        localStorage.setItem('selectedPrinter', firstPrinter);
+        const preferredPrinterName = 'XP-80C (copy 2)';
+        const preferred = availablePrinters.find((printer) => printer.name === preferredPrinterName);
+        const fallback = preferred ? preferred.name : availablePrinters[0].name;
+
+        // Auto-select preferred thermal printer when available.
+        setSelectedPrinter(fallback);
+        localStorage.setItem('selectedPrinter', fallback);
       }
     } catch (error) {
       console.error('Error loading printers:', error);
@@ -105,6 +109,18 @@ const PrinterSettings = () => {
     setSelectedPrinter(newPrinter);
     localStorage.setItem('selectedPrinter', newPrinter);
     toast.success(`Printer set to: ${newPrinter}`);
+  };
+
+  const handleQuickPrinterSelect = (printerName) => {
+    setSelectedPrinter(printerName);
+    localStorage.setItem('selectedPrinter', printerName);
+
+    const found = printers.some((printer) => printer.name === printerName);
+    if (found) {
+      toast.success(`Printer set to: ${printerName}`);
+    } else {
+      toast.warning(`Saved ${printerName}. If it does not print, click Refresh Printers.`);
+    }
   };
 
   const handleFontChange = (event) => {
@@ -199,6 +215,29 @@ const PrinterSettings = () => {
                 )}
               </Select>
             </FormControl>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>
+                Quick Switch (XP-80C)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {quickReceiptPrinters.map((printerName) => {
+                  const isSelected = selectedPrinter === printerName;
+                  return (
+                    <Button
+                      key={printerName}
+                      size="small"
+                      variant={isSelected ? 'contained' : 'outlined'}
+                      onClick={() => handleQuickPrinterSelect(printerName)}
+                      disabled={!getIpcRenderer()}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      {printerName}
+                    </Button>
+                  );
+                })}
+              </Box>
+            </Box>
 
             {printerStatus && (
               <Alert 

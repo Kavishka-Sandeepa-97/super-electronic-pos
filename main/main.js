@@ -134,20 +134,64 @@ function registerIPCHandlers() {
 
       await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
 
+      const normalizeName = (name) => (name || '')
+        .toString()
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+      const requestedName = normalizeName(printerName);
+      let resolvedDeviceName = '';
+
+      try {
+        const availablePrinters = await printWin.webContents.getPrintersAsync();
+        const normalizedRequested = requestedName;
+
+        const exactMatch = availablePrinters.find((printer) => normalizeName(printer.name) === normalizedRequested);
+        if (exactMatch) {
+          resolvedDeviceName = exactMatch.name;
+        } else if (normalizedRequested) {
+          const broadMatch = availablePrinters.find((printer) => normalizeName(printer.name).includes(normalizedRequested));
+          if (broadMatch) {
+            resolvedDeviceName = broadMatch.name;
+          }
+        }
+
+        if (!resolvedDeviceName && normalizedRequested.includes('xp-80c')) {
+          const familyMatch = availablePrinters.find((printer) => normalizeName(printer.name).includes('xp-80c'));
+          if (familyMatch) {
+            resolvedDeviceName = familyMatch.name;
+          }
+        }
+      } catch (printerLookupError) {
+        // Continue with fallback printing if printer list fetch fails.
+      }
+
       return new Promise((resolve) => {
         // Small delay to let content render
         setTimeout(() => {
+          const printOptions = {
+            silent: true,
+            printBackground: true,
+            margins: { marginType: 'none' }
+          };
+
+          // Only pass deviceName when it is resolved from Electron's printer list.
+          if (resolvedDeviceName) {
+            printOptions.deviceName = resolvedDeviceName;
+          }
+
           printWin.webContents.print(
-            {
-              silent: true,
-              deviceName: printerName,
-              printBackground: true,
-              margins: { marginType: 'none' }
-            },
+            printOptions,
             (success, failureReason) => {
               printWin.close();
               if (success) {
-                resolve({ success: true, message: 'Printed successfully' });
+                resolve({
+                  success: true,
+                  message: resolvedDeviceName
+                    ? `Printed successfully via ${resolvedDeviceName}`
+                    : 'Printed successfully via default printer',
+                });
               } else {
                 resolve({ success: false, error: failureReason || 'Print failed' });
               }
