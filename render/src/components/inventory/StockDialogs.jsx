@@ -548,7 +548,7 @@ export const BarcodePrintDialog = ({
                   }
                 }}
                 inputProps={{ min: 1, max: 500 }}
-                helperText="Labels will be printed in 3-column layout (35mm x 20mm each)"
+                helperText="Labels will open in preview first, then print in 3-column layout (35mm x 20mm each)"
               />
             </Box>
           )}

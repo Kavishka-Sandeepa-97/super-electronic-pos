@@ -140,20 +140,41 @@ function registerIPCHandlers() {
         .replace(/\s+/g, ' ')
         .toLowerCase();
 
+      const simplifyName = (name) => normalizeName(name)
+        .replace(/\(copy\s*\d+\)/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
       const requestedName = normalizeName(printerName);
       let resolvedDeviceName = '';
 
       try {
         const availablePrinters = await printWin.webContents.getPrintersAsync();
         const normalizedRequested = requestedName;
+        const simplifiedRequested = simplifyName(printerName);
 
         const exactMatch = availablePrinters.find((printer) => normalizeName(printer.name) === normalizedRequested);
         if (exactMatch) {
           resolvedDeviceName = exactMatch.name;
         } else if (normalizedRequested) {
-          const broadMatch = availablePrinters.find((printer) => normalizeName(printer.name).includes(normalizedRequested));
+          const broadMatch = availablePrinters.find((printer) => {
+            const normalizedPrinter = normalizeName(printer.name);
+            return normalizedPrinter.includes(normalizedRequested) || normalizedRequested.includes(normalizedPrinter);
+          });
           if (broadMatch) {
             resolvedDeviceName = broadMatch.name;
+          }
+        }
+
+        if (!resolvedDeviceName && simplifiedRequested) {
+          const familyTokens = simplifiedRequested.split(' ').filter((token) => token.length >= 2);
+          const tokenMatch = availablePrinters.find((printer) => {
+            const simplifiedPrinter = simplifyName(printer.name);
+            return familyTokens.every((token) => simplifiedPrinter.includes(token));
+          });
+          if (tokenMatch) {
+            resolvedDeviceName = tokenMatch.name;
           }
         }
 
@@ -162,6 +183,22 @@ function registerIPCHandlers() {
           if (familyMatch) {
             resolvedDeviceName = familyMatch.name;
           }
+        }
+
+        if (!resolvedDeviceName && normalizedRequested.includes('xp-h500b')) {
+          const familyMatch = availablePrinters.find((printer) => normalizeName(printer.name).includes('xp-h500b'));
+          if (familyMatch) {
+            resolvedDeviceName = familyMatch.name;
+          }
+        }
+
+        if (!resolvedDeviceName && requestedName) {
+          const availableNames = availablePrinters.map((printer) => printer.name).join(', ');
+          printWin.close();
+          return {
+            success: false,
+            error: `Selected printer not found: ${printerName}. Available printers: ${availableNames || 'none'}`,
+          };
         }
       } catch (printerLookupError) {
         // Continue with fallback printing if printer list fetch fails.

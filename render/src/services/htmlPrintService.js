@@ -296,9 +296,11 @@ const htmlPrintService = {
   },
 
   // Print barcode labels for XP-H500B label printer (35mm x 20mm, 3 columns)
-  printBarcodeLabels: async (item, quantity = 1, printerName = null) => {
+  // previewBeforePrint opens print preview first so cashier can confirm before printing.
+  printBarcodeLabels: async (item, quantity = 1, printerName = null, options = {}) => {
     try {
       const ipcRenderer = getIpcRenderer();
+      const previewBeforePrint = options.previewBeforePrint !== false;
       const barcode = item.barcode || '';
       const price = parseFloat(item.selling_price || item.price || 0);
       const shopName = 'SUPER GLOW';
@@ -451,7 +453,28 @@ const htmlPrintService = {
         </html>
       `;
 
-      // In desktop app, use Electron silent print to avoid the print dialog.
+      // For barcode labels, open preview before print by default.
+      if (previewBeforePrint) {
+        const printWindow = window.open('', '_blank', 'width=620,height=360');
+        if (!printWindow) {
+          return { success: false, message: 'Unable to open print preview window (pop-up blocked).' };
+        }
+
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+
+        setTimeout(() => {
+          try {
+            printWindow.print();
+          } catch (_error) {}
+        }, 400);
+
+        return { success: true, message: `Preview opened for ${quantity} barcode label(s)` };
+      }
+
+      // Optional silent mode for desktop app.
       if (ipcRenderer) {
         const result = await ipcRenderer.invoke('print-receipt', {
           content: html,
@@ -463,7 +486,7 @@ const htmlPrintService = {
           : { success: false, message: result.message || result.error || 'Barcode print failed' };
       }
 
-      // Open print window
+      // Browser fallback: open print window
       const printWindow = window.open('', '_blank', 'width=450,height=300');
       if (!printWindow) {
         return { success: false, message: 'Unable to open print window (pop-up blocked).' };

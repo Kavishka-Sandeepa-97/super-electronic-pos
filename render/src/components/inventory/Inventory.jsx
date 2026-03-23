@@ -394,7 +394,12 @@ const Inventory = () => {
   const handlePrintBarcodeLabels = async () => {
     if (!selectedItemForBarcode) return;
     try {
-      const result = await htmlPrintService.printBarcodeLabels(selectedItemForBarcode, barcodePrintQuantity);
+      const result = await htmlPrintService.printBarcodeLabels(
+        selectedItemForBarcode,
+        barcodePrintQuantity,
+        null,
+        { previewBeforePrint: true }
+      );
       if (result.success) { toast.success(result.message); setBarcodePrintDialog(false); }
       else toast.error(result.message || 'Failed to print barcode labels');
     } catch (e) { toast.error(`Print error: ${e.message}`); }
