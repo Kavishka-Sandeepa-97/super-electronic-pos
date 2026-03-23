@@ -104,16 +104,21 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
       h2 { margin: 2px 0; font-size: 16px; font-weight: 900; letter-spacing: 0.4px; }
       .small { font-size: 9px; }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      thead th { font-size: 9px; }
-      .items td { padding: 1px 0; word-wrap: break-word; white-space: normal; font-size: 9px; }
-      .items td:first-child { width: 57%; word-break: break-word; }
-      .items td:nth-child(2) { width: 12%; text-align: center; }
-      .items td:nth-child(3) { width: 31%; text-align: right; white-space: nowrap; }
-      .disc-row td { font-size: 8px; color: #333; padding: 0 0 2px 4px; font-weight: normal; }
+      .items-table col.item-col { width: 62%; }
+      .items-table col.qty-col { width: 15%; }
+      .items-table col.total-col { width: 23%; }
+      .items-table thead th { font-size: 12px; font-weight: 900; padding-bottom: 2px; }
+      .items td { padding: 2px 1px; word-wrap: break-word; white-space: normal; font-size: 12px; }
+      .items td:first-child { word-break: break-word; }
+      .items td:nth-child(2) { text-align: center; }
+      .items td:nth-child(3) { text-align: right; white-space: nowrap; }
+      .disc-row td { font-size: 8px; color: #333; padding: 1px 0 3px 4px; font-weight: normal; }
+      .subtotal-row td { font-size: 9px; font-weight: 500; }
       .discount-summary-row td { font-size: 10px; font-weight: 700; }
       .discount-highlight { font-size: 10px; font-weight: 900; letter-spacing: 0.1px; }
       .sep { border-top: 1px dashed #000; margin: 6px 0; }
       .total-row td { font-size: 12px; font-weight: 900; white-space: nowrap; }
+      .change-row { font-size: 12px; font-weight: 900; }
       .receipt-footer { text-align: center; margin-top: 8px; }
       .order-barcode { text-align: center; margin-top: 6px; }
       .order-barcode svg { display: block; margin: 0 auto; max-width: 150px; height: 18px; }
@@ -175,7 +180,12 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
 
           <div class="sep"></div>
 
-          <table>
+          <table class="items-table">
+            <colgroup>
+              <col class="item-col" />
+              <col class="qty-col" />
+              <col class="total-col" />
+            </colgroup>
             <thead>
               <tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Total</th></tr>
             </thead>
@@ -187,7 +197,7 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
           <div class="sep"></div>
 
           <table>
-            <tr><td>Subtotal</td><td class="right">${currency} ${totalItemDiscounts > 0 ? originalSubtotal.toFixed(2) : subtotal.toFixed(2)}</td></tr>
+            <tr class="subtotal-row"><td>Subtotal (before discount)</td><td class="right">${currency} ${totalItemDiscounts > 0 ? originalSubtotal.toFixed(2) : subtotal.toFixed(2)}</td></tr>
             ${totalItemDiscounts > 0 ? `<tr class="discount-summary-row"><td>Item Discounts</td><td class="right">- <span class="discount-highlight">${currency} ${totalItemDiscounts.toFixed(2)}</span></td></tr>` : ''}
             ${discountAmount > 0 ? `<tr class="discount-summary-row"><td>Discount${discount_type === 'percent' ? ` (${discount_value}%)` : ''}</td><td class="right">- <span class="discount-highlight">${currency} ${discountAmount.toFixed(2)}</span></td></tr>` : ''}
             ${additionalCharges > 0 ? `<tr><td>Additional Charge</td><td class="right">${currency} ${additionalCharges.toFixed(2)}</td></tr>` : ''}
@@ -198,9 +208,10 @@ const buildReceiptHTML = (order = {}, storeInfo = {}) => {
 
           <div>Payment: ${paymentMethod || 'cash'}</div>
           <div>Paid: ${currency} ${paid.toFixed(2)}</div>
-          ${paid > 0 ? `<div>Change: ${currency} ${change >= 0 ? change.toFixed(2) : '0.00'}</div>` : ''}
+          ${paid > 0 ? `<div class="change-row">Change: ${currency} ${change >= 0 ? change.toFixed(2) : '0.00'}</div>` : ''}
 
           <div class="receipt-footer">
+            <div class="small">No cash refund</div>
             <div class="small">${storeInfo.receiptFooter || 'Thank you for your visit !'}</div>
             ${barcode ? `
               <div class="order-barcode">
